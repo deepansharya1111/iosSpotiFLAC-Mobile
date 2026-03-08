@@ -84,7 +84,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           autofocus: widget.query.isEmpty,
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.search), onPressed: _search),
+          IconButton(
+            tooltip: MaterialLocalizations.of(context).searchFieldLabel,
+            icon: const Icon(Icons.search),
+            onPressed: _search,
+          ),
         ],
       ),
       body: Column(

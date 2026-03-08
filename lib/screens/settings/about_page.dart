@@ -28,6 +28,7 @@ class AboutPage extends StatelessWidget {
               backgroundColor: colorScheme.surface,
               surfaceTintColor: Colors.transparent,
               leading: IconButton(
+                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
                 icon: const Icon(Icons.arrow_back),
                 onPressed: () => Navigator.pop(context),
               ),

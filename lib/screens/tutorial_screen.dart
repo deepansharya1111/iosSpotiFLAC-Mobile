@@ -103,6 +103,9 @@ class _TutorialScreenState extends ConsumerState<TutorialScreen> {
                     opacity: _currentPage > 0 ? 1.0 : 0.0,
                     child: IconButton.filledTonal(
                       onPressed: _currentPage > 0 ? _prevPage : null,
+                      tooltip: MaterialLocalizations.of(
+                        context,
+                      ).backButtonTooltip,
                       icon: const Icon(Icons.arrow_back),
                       style: IconButton.styleFrom(
                         backgroundColor: colorScheme.surfaceContainerHighest,
@@ -613,40 +616,52 @@ class _InteractiveDownloadExampleState
                 ),
               ),
               const SizedBox(width: 16),
-              GestureDetector(
-                onTap: _startDownload,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  padding: EdgeInsets.all(buttonPadding),
-                  decoration: BoxDecoration(
-                    color: _isCompleted ? Colors.green : colorScheme.primary,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color:
-                            (_isCompleted ? Colors.green : colorScheme.primary)
-                                .withValues(alpha: 0.3),
-                        blurRadius: 12,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: _isDownloading
-                      ? SizedBox(
-                          width: buttonIconSize,
-                          height: buttonIconSize,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 3,
-                            color: colorScheme.onPrimary,
-                          ),
-                        )
-                      : Icon(
-                          _isCompleted
-                              ? Icons.check_rounded
-                              : Icons.download_rounded,
-                          color: colorScheme.onPrimary,
-                          size: buttonIconSize,
+              Semantics(
+                button: true,
+                label: _isCompleted
+                    ? 'Download completed'
+                    : _isDownloading
+                    ? 'Download in progress'
+                    : 'Start download',
+                child: GestureDetector(
+                  onTap: _startDownload,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    padding: EdgeInsets.all(buttonPadding),
+                    decoration: BoxDecoration(
+                      color: _isCompleted ? Colors.green : colorScheme.primary,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color:
+                              (_isCompleted
+                                      ? Colors.green
+                                      : colorScheme.primary)
+                                  .withValues(alpha: 0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 6),
                         ),
+                      ],
+                    ),
+                    child: _isDownloading
+                        ? SizedBox(
+                            width: buttonIconSize,
+                            height: buttonIconSize,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 3,
+                              color: colorScheme.onPrimary,
+                            ),
+                          )
+                        : ExcludeSemantics(
+                            child: Icon(
+                              _isCompleted
+                                  ? Icons.check_rounded
+                                  : Icons.download_rounded,
+                              color: colorScheme.onPrimary,
+                              size: buttonIconSize,
+                            ),
+                          ),
+                  ),
                 ),
               ),
             ],

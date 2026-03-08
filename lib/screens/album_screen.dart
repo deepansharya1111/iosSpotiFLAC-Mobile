@@ -488,6 +488,7 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen> {
         },
       ),
       leading: IconButton(
+        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
         icon: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(

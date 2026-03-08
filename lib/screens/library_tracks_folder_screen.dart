@@ -435,6 +435,9 @@ class _LibraryTracksFolderScreenState
                 children: [
                   IconButton.filledTonal(
                     onPressed: _exitSelectionMode,
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).closeButtonTooltip,
                     icon: const Icon(Icons.close),
                     style: IconButton.styleFrom(
                       backgroundColor: colorScheme.surfaceContainerHighest,
@@ -800,6 +803,9 @@ class _LibraryTracksFolderScreenState
         },
       ),
       leading: IconButton(
+        tooltip: _isSelectionMode
+            ? MaterialLocalizations.of(context).closeButtonTooltip
+            : MaterialLocalizations.of(context).backButtonTooltip,
         icon: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
@@ -818,7 +824,8 @@ class _LibraryTracksFolderScreenState
     );
   }
 
-  Widget _buildHeaderActionPlaceholder() => const SizedBox(width: 48, height: 48);
+  Widget _buildHeaderActionPlaceholder() =>
+      const SizedBox(width: 48, height: 48);
 
   Widget _buildDownloadAllCenterButton(List<CollectionTrackEntry> entries) {
     final tracks = entries.map((e) => e.track).toList(growable: false);
@@ -1139,6 +1146,7 @@ class _CollectionTrackTile extends ConsumerWidget {
           trailing: isSelectionMode
               ? null
               : IconButton(
+                  tooltip: MaterialLocalizations.of(context).showMenuTooltip,
                   icon: Icon(
                     Icons.more_vert,
                     color: colorScheme.onSurfaceVariant,

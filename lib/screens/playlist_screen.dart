@@ -321,6 +321,7 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
         },
       ),
       leading: IconButton(
+        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
         icon: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(

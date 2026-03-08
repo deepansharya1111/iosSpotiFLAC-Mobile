@@ -650,6 +650,7 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
               },
             ),
             leading: IconButton(
+              tooltip: MaterialLocalizations.of(context).backButtonTooltip,
               icon: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -662,6 +663,7 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
             ),
             actions: [
               IconButton(
+                tooltip: MaterialLocalizations.of(context).showMenuTooltip,
                 icon: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(

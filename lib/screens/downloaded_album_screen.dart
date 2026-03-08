@@ -630,6 +630,7 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen> {
         },
       ),
       leading: IconButton(
+        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
         icon: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
@@ -851,6 +852,7 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen> {
           trailing: _isSelectionMode
               ? null
               : IconButton(
+                  tooltip: 'Play track',
                   onPressed: () => _openFile(track),
                   icon: Icon(Icons.play_arrow, color: colorScheme.primary),
                   style: IconButton.styleFrom(
@@ -1326,6 +1328,9 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen> {
                 children: [
                   IconButton.filledTonal(
                     onPressed: _exitSelectionMode,
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).closeButtonTooltip,
                     icon: const Icon(Icons.close),
                     style: IconButton.styleFrom(
                       backgroundColor: colorScheme.surfaceContainerHighest,

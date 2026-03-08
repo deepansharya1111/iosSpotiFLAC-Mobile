@@ -487,6 +487,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                   if (_currentStep > 0)
                     IconButton.filledTonal(
                       onPressed: _prevPage,
+                      tooltip: MaterialLocalizations.of(
+                        context,
+                      ).backButtonTooltip,
                       icon: const Icon(Icons.arrow_back),
                       style: IconButton.styleFrom(
                         backgroundColor: colorScheme.surfaceContainerHighest,
@@ -708,6 +711,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 trailing: IconButton(
+                  tooltip: 'Change folder',
                   icon: const Icon(Icons.edit),
                   onPressed: _selectDirectory,
                 ),

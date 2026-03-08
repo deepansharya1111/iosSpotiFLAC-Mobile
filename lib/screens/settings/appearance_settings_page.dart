@@ -30,6 +30,7 @@ class AppearanceSettingsPage extends ConsumerWidget {
               backgroundColor: colorScheme.surface,
               surfaceTintColor: Colors.transparent,
               leading: IconButton(
+                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
                 icon: const Icon(Icons.arrow_back),
                 onPressed: () => Navigator.pop(context),
               ),
@@ -347,11 +348,21 @@ class _ColorPalettePicker extends StatelessWidget {
       child: Row(
         children: _colors.map((color) {
           final isSelected = color.toARGB32() == currentColor;
+          final colorHex = color
+              .toARGB32()
+              .toRadixString(16)
+              .padLeft(8, '0')
+              .toUpperCase();
           return Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: GestureDetector(
-              onTap: () => onColorSelected(color),
-              child: _ColorPaletteItem(color: color, isSelected: isSelected),
+            child: Semantics(
+              button: true,
+              selected: isSelected,
+              label: 'Select accent color $colorHex',
+              child: GestureDetector(
+                onTap: () => onColorSelected(color),
+                child: _ColorPaletteItem(color: color, isSelected: isSelected),
+              ),
             ),
           );
         }).toList(),

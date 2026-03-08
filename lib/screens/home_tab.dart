@@ -1332,24 +1332,49 @@ class _HomeTabState extends ConsumerState<HomeTab>
               );
               return KeyedSubtree(
                 key: ValueKey(item.id),
-                child: GestureDetector(
-                  onTap: () => _navigateToMetadataScreen(item),
-                  child: Container(
-                    width: coverSize,
-                    margin: const EdgeInsets.only(right: 12),
-                    child: Column(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: embeddedCoverPath != null
-                              ? Image.file(
-                                  File(embeddedCoverPath),
-                                  width: coverSize,
-                                  height: coverSize,
-                                  fit: BoxFit.cover,
-                                  cacheWidth: (coverSize * 2).round(),
-                                  cacheHeight: (coverSize * 2).round(),
-                                  errorBuilder: (_, _, _) => Container(
+                child: Semantics(
+                  button: true,
+                  label: 'Open track ${item.trackName} by ${item.artistName}',
+                  child: GestureDetector(
+                    onTap: () => _navigateToMetadataScreen(item),
+                    child: Container(
+                      width: coverSize,
+                      margin: const EdgeInsets.only(right: 12),
+                      child: Column(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: embeddedCoverPath != null
+                                ? Image.file(
+                                    File(embeddedCoverPath),
+                                    width: coverSize,
+                                    height: coverSize,
+                                    fit: BoxFit.cover,
+                                    cacheWidth: (coverSize * 2).round(),
+                                    cacheHeight: (coverSize * 2).round(),
+                                    errorBuilder: (_, _, _) => Container(
+                                      width: coverSize,
+                                      height: coverSize,
+                                      color:
+                                          colorScheme.surfaceContainerHighest,
+                                      child: Icon(
+                                        Icons.music_note,
+                                        color: colorScheme.onSurfaceVariant,
+                                        size: 32,
+                                      ),
+                                    ),
+                                  )
+                                : item.coverUrl != null
+                                ? CachedNetworkImage(
+                                    imageUrl: item.coverUrl!,
+                                    width: coverSize,
+                                    height: coverSize,
+                                    fit: BoxFit.cover,
+                                    memCacheWidth: (coverSize * 2).round(),
+                                    memCacheHeight: (coverSize * 2).round(),
+                                    cacheManager: CoverCacheManager.instance,
+                                  )
+                                : Container(
                                     width: coverSize,
                                     height: coverSize,
                                     color: colorScheme.surfaceContainerHighest,
@@ -1359,38 +1384,18 @@ class _HomeTabState extends ConsumerState<HomeTab>
                                       size: 32,
                                     ),
                                   ),
-                                )
-                              : item.coverUrl != null
-                              ? CachedNetworkImage(
-                                  imageUrl: item.coverUrl!,
-                                  width: coverSize,
-                                  height: coverSize,
-                                  fit: BoxFit.cover,
-                                  memCacheWidth: (coverSize * 2).round(),
-                                  memCacheHeight: (coverSize * 2).round(),
-                                  cacheManager: CoverCacheManager.instance,
-                                )
-                              : Container(
-                                  width: coverSize,
-                                  height: coverSize,
-                                  color: colorScheme.surfaceContainerHighest,
-                                  child: Icon(
-                                    Icons.music_note,
-                                    color: colorScheme.onSurfaceVariant,
-                                    size: 32,
-                                  ),
-                                ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          item.trackName,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: colorScheme.onSurfaceVariant),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            item.trackName,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: colorScheme.onSurfaceVariant),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1494,31 +1499,45 @@ class _HomeTabState extends ConsumerState<HomeTab>
     final cardSize = _exploreCardSize(context);
     final iconSize = cardSize * 0.3;
 
-    return GestureDetector(
-      onTap: () => _navigateToExploreItem(item),
-      child: SizedBox(
-        width: cardSize,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          child: Column(
-            crossAxisAlignment: isArtist
-                ? CrossAxisAlignment.center
-                : CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(
-                  isArtist ? cardSize / 2 : 8,
-                ),
-                child: item.coverUrl != null && item.coverUrl!.isNotEmpty
-                    ? CachedNetworkImage(
-                        imageUrl: item.coverUrl!,
-                        width: cardSize,
-                        height: cardSize,
-                        fit: BoxFit.cover,
-                        memCacheWidth: (cardSize * 2).round(),
-                        memCacheHeight: (cardSize * 2).round(),
-                        cacheManager: CoverCacheManager.instance,
-                        errorWidget: (context, url, error) => Container(
+    return Semantics(
+      button: true,
+      label: 'Open ${item.type} ${item.name}',
+      child: GestureDetector(
+        onTap: () => _navigateToExploreItem(item),
+        child: SizedBox(
+          width: cardSize,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Column(
+              crossAxisAlignment: isArtist
+                  ? CrossAxisAlignment.center
+                  : CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(
+                    isArtist ? cardSize / 2 : 8,
+                  ),
+                  child: item.coverUrl != null && item.coverUrl!.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: item.coverUrl!,
+                          width: cardSize,
+                          height: cardSize,
+                          fit: BoxFit.cover,
+                          memCacheWidth: (cardSize * 2).round(),
+                          memCacheHeight: (cardSize * 2).round(),
+                          cacheManager: CoverCacheManager.instance,
+                          errorWidget: (context, url, error) => Container(
+                            width: cardSize,
+                            height: cardSize,
+                            color: colorScheme.surfaceContainerHighest,
+                            child: Icon(
+                              _getIconForType(item.type),
+                              color: colorScheme.onSurfaceVariant,
+                              size: iconSize,
+                            ),
+                          ),
+                        )
+                      : Container(
                           width: cardSize,
                           height: cardSize,
                           color: colorScheme.surfaceContainerHighest,
@@ -1528,42 +1547,32 @@ class _HomeTabState extends ConsumerState<HomeTab>
                             size: iconSize,
                           ),
                         ),
-                      )
-                    : Container(
-                        width: cardSize,
-                        height: cardSize,
-                        color: colorScheme.surfaceContainerHighest,
-                        child: Icon(
-                          _getIconForType(item.type),
-                          color: colorScheme.onSurfaceVariant,
-                          size: iconSize,
-                        ),
-                      ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                item.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: isArtist ? TextAlign.center : TextAlign.start,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w500,
-                  color: colorScheme.onSurface,
                 ),
-              ),
-              if (item.artists.isNotEmpty && !isArtist)
-                ClickableArtistName(
-                  artistName: item.artists,
-                  coverUrl: item.coverUrl,
-                  extensionId: item.providerId,
+                const SizedBox(height: 8),
+                Text(
+                  item.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                  textAlign: isArtist ? TextAlign.center : TextAlign.start,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: colorScheme.onSurface,
                   ),
                 ),
-            ],
+                if (item.artists.isNotEmpty && !isArtist)
+                  ClickableArtistName(
+                    artistName: item.artists,
+                    coverUrl: item.coverUrl,
+                    extensionId: item.providerId,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2018,6 +2027,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
                 ),
               ),
               IconButton(
+                tooltip: 'Dismiss',
                 icon: Icon(
                   Icons.close,
                   size: 20,
@@ -4379,6 +4389,7 @@ class _QuickPicksPageViewState extends State<_QuickPicksPageView> {
               ),
             ),
             IconButton(
+              tooltip: MaterialLocalizations.of(context).showMenuTooltip,
               icon: Icon(
                 Icons.more_vert,
                 color: widget.colorScheme.onSurfaceVariant,

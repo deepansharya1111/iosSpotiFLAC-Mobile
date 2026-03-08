@@ -1184,6 +1184,7 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen> {
         ],
       ),
       leading: IconButton(
+        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
         icon: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
@@ -1571,44 +1572,61 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen> {
   }) {
     final isSelected = _selectedAlbumIds.contains(album.id);
 
-    return GestureDetector(
-      onTap: () {
-        if (_isSelectionMode) {
-          _toggleAlbumSelection(album.id);
-        } else {
-          _navigateToAlbum(album);
-        }
-      },
-      onLongPress: () {
-        if (!_isSelectionMode) {
-          _enterSelectionMode(album.id);
-        }
-      },
-      child: Container(
-        width: tileSize,
-        height: sectionHeight,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: album.coverUrl != null
-                      ? CachedNetworkImage(
-                          imageUrl: album.coverUrl!,
-                          width: tileSize,
-                          height: tileSize,
-                          fit: BoxFit.cover,
-                          memCacheWidth: (tileSize * 2).round(),
-                          cacheManager: CoverCacheManager.instance,
-                          placeholder: (context, url) => Container(
+    return Semantics(
+      button: true,
+      selected: _isSelectionMode && isSelected,
+      label: _isSelectionMode
+          ? 'Select album ${album.name}'
+          : 'Open album ${album.name}',
+      child: GestureDetector(
+        onTap: () {
+          if (_isSelectionMode) {
+            _toggleAlbumSelection(album.id);
+          } else {
+            _navigateToAlbum(album);
+          }
+        },
+        onLongPress: () {
+          if (!_isSelectionMode) {
+            _enterSelectionMode(album.id);
+          }
+        },
+        child: Container(
+          width: tileSize,
+          height: sectionHeight,
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: album.coverUrl != null
+                        ? CachedNetworkImage(
+                            imageUrl: album.coverUrl!,
                             width: tileSize,
                             height: tileSize,
-                            color: colorScheme.surfaceContainerHighest,
-                          ),
-                          errorWidget: (context, url, error) => Container(
+                            fit: BoxFit.cover,
+                            memCacheWidth: (tileSize * 2).round(),
+                            cacheManager: CoverCacheManager.instance,
+                            placeholder: (context, url) => Container(
+                              width: tileSize,
+                              height: tileSize,
+                              color: colorScheme.surfaceContainerHighest,
+                            ),
+                            errorWidget: (context, url, error) => Container(
+                              width: tileSize,
+                              height: tileSize,
+                              color: colorScheme.surfaceContainerHighest,
+                              child: Icon(
+                                Icons.album,
+                                color: colorScheme.onSurfaceVariant,
+                                size: 40,
+                              ),
+                            ),
+                          )
+                        : Container(
                             width: tileSize,
                             height: tileSize,
                             color: colorScheme.surfaceContainerHighest,
@@ -1618,97 +1636,87 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen> {
                               size: 40,
                             ),
                           ),
-                        )
-                      : Container(
-                          width: tileSize,
-                          height: tileSize,
-                          color: colorScheme.surfaceContainerHighest,
-                          child: Icon(
-                            Icons.album,
-                            color: colorScheme.onSurfaceVariant,
-                            size: 40,
+                  ),
+                  if (_isSelectionMode)
+                    Positioned.fill(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color: isSelected
+                              ? colorScheme.primary.withValues(alpha: 0.3)
+                              : Colors.black.withValues(alpha: 0.1),
+                          border: isSelected
+                              ? Border.all(color: colorScheme.primary, width: 3)
+                              : null,
+                        ),
+                      ),
+                    ),
+                  if (_isSelectionMode)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? colorScheme.primary
+                              : colorScheme.surface.withValues(alpha: 0.9),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isSelected
+                                ? colorScheme.primary
+                                : colorScheme.outline,
+                            width: 2,
                           ),
                         ),
-                ),
-                if (_isSelectionMode)
-                  Positioned.fill(
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        color: isSelected
-                            ? colorScheme.primary.withValues(alpha: 0.3)
-                            : Colors.black.withValues(alpha: 0.1),
-                        border: isSelected
-                            ? Border.all(color: colorScheme.primary, width: 3)
+                        child: isSelected
+                            ? Icon(
+                                Icons.check,
+                                color: colorScheme.onPrimary,
+                                size: 18,
+                              )
                             : null,
                       ),
                     ),
-                  ),
-                if (_isSelectionMode)
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? colorScheme.primary
-                            : colorScheme.surface.withValues(alpha: 0.9),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isSelected
-                              ? colorScheme.primary
-                              : colorScheme.outline,
-                          width: 2,
-                        ),
-                      ),
-                      child: isSelected
-                          ? Icon(
-                              Icons.check,
-                              color: colorScheme.onPrimary,
-                              size: 18,
-                            )
-                          : null,
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(
-                      album.name,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w500,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    album.totalTracks > 0
-                        ? '${album.releaseDate.length >= 4 ? album.releaseDate.substring(0, 4) : album.releaseDate} ${context.l10n.tracksCount(album.totalTracks)}'
-                        : album.releaseDate.length >= 4
-                        ? album.releaseDate.substring(0, 4)
-                        : album.releaseDate,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        album.name,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      album.totalTracks > 0
+                          ? '${album.releaseDate.length >= 4 ? album.releaseDate.substring(0, 4) : album.releaseDate} ${context.l10n.tracksCount(album.totalTracks)}'
+                          : album.releaseDate.length >= 4
+                          ? album.releaseDate.substring(0, 4)
+                          : album.releaseDate,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -73,8 +73,8 @@ const _builtInServices = [
     qualityOptions: [
       QualityOption(
         id: 'FLAC',
-        label: 'FLAC Lossless',
-        description: '16-bit / 44.1kHz (CD Quality)',
+        label: 'FLAC Best Quality',
+        description: 'Up to 24-bit / 48kHz+',
       ),
     ],
   ),

@@ -1353,6 +1353,160 @@ class FFmpegService {
 
     return id3Map;
   }
+
+  /// Split a CUE+audio file into individual track files using FFmpeg.
+  /// Each track is extracted with `-c copy` (no re-encoding) and metadata is embedded.
+  /// [audioPath] is the source audio file (FLAC, WAV, etc.)
+  /// [outputDir] is where individual track files will be saved
+  /// [tracks] is the list of track split info from the Go CUE parser
+  /// [albumMetadata] contains album-level metadata (artist, album, genre, date)
+  /// Returns list of output file paths on success, null on failure.
+  static Future<List<String>?> splitCueToTracks({
+    required String audioPath,
+    required String outputDir,
+    required List<CueSplitTrackInfo> tracks,
+    required Map<String, String> albumMetadata,
+    String? coverPath,
+    void Function(int current, int total)? onProgress,
+  }) async {
+    if (tracks.isEmpty) {
+      _log.e('No tracks to split');
+      return null;
+    }
+
+    final outputPaths = <String>[];
+    final inputExt = audioPath.toLowerCase().split('.').last;
+    // For lossless formats, keep as FLAC; for others, keep original format
+    final outputExt = (inputExt == 'flac' || inputExt == 'wav' || inputExt == 'ape' || inputExt == 'wv')
+        ? 'flac'
+        : inputExt;
+
+    for (var i = 0; i < tracks.length; i++) {
+      final track = tracks[i];
+      onProgress?.call(i + 1, tracks.length);
+
+      // Sanitize filename
+      final sanitizedTitle = track.title
+          .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      final trackNumStr = track.number.toString().padLeft(2, '0');
+      final outputFileName = '$trackNumStr - $sanitizedTitle.$outputExt';
+      final outputPath = '$outputDir${Platform.pathSeparator}$outputFileName';
+
+      // Build FFmpeg command for this track
+      final StringBuffer cmdBuffer = StringBuffer();
+      cmdBuffer.write('-i "$audioPath" ');
+
+      // Time range
+      final startTime = _formatSecondsForFFmpeg(track.startSec);
+      cmdBuffer.write('-ss $startTime ');
+
+      if (track.endSec > 0) {
+        final endTime = _formatSecondsForFFmpeg(track.endSec);
+        cmdBuffer.write('-to $endTime ');
+      }
+
+      if (outputExt == 'flac') {
+        cmdBuffer.write('-c:a flac -compression_level 8 ');
+      } else {
+        cmdBuffer.write('-c:a copy ');
+      }
+
+      // Metadata
+      final artist = track.artist.isNotEmpty ? track.artist : (albumMetadata['artist'] ?? '');
+      final album = albumMetadata['album'] ?? '';
+      final genre = albumMetadata['genre'] ?? '';
+      final date = albumMetadata['date'] ?? '';
+
+      void addMeta(String key, String value) {
+        if (value.isNotEmpty) {
+          final sanitized = value.replaceAll('"', '\\"');
+          cmdBuffer.write('-metadata $key="$sanitized" ');
+        }
+      }
+
+      addMeta('TITLE', track.title);
+      addMeta('ARTIST', artist);
+      addMeta('ALBUM', album);
+      addMeta('ALBUMARTIST', albumMetadata['artist'] ?? '');
+      addMeta('TRACKNUMBER', track.number.toString());
+      addMeta('GENRE', genre);
+      addMeta('DATE', date);
+      if (track.isrc.isNotEmpty) addMeta('ISRC', track.isrc);
+      if (track.composer.isNotEmpty) addMeta('COMPOSER', track.composer);
+
+      cmdBuffer.write('"$outputPath" -y');
+
+      final command = cmdBuffer.toString();
+      _log.d('CUE split track ${track.number}: ${_previewCommandForLog(command)}');
+
+      final result = await _execute(command);
+      if (!result.success) {
+        _log.e('CUE split failed for track ${track.number}: ${result.output}');
+        // Continue with remaining tracks instead of failing completely
+        continue;
+      }
+
+      // Embed cover art if available (for FLAC output)
+      if (coverPath != null && coverPath.isNotEmpty && outputExt == 'flac') {
+        // Use the Go backend for FLAC cover embedding via PlatformBridge
+        // (handled by the caller)
+      }
+
+      outputPaths.add(outputPath);
+      _log.i('CUE split: track ${track.number} -> $outputFileName');
+    }
+
+    if (outputPaths.isEmpty) {
+      _log.e('CUE split: no tracks were successfully extracted');
+      return null;
+    }
+
+    _log.i('CUE split complete: ${outputPaths.length}/${tracks.length} tracks');
+    return outputPaths;
+  }
+
+  static String _formatSecondsForFFmpeg(double seconds) {
+    if (seconds < 0) return '0';
+    final hours = seconds ~/ 3600;
+    final mins = (seconds % 3600) ~/ 60;
+    final secs = seconds - (hours * 3600) - (mins * 60);
+    return '${hours.toString().padLeft(2, '0')}:${mins.toInt().toString().padLeft(2, '0')}:${secs.toStringAsFixed(3).padLeft(6, '0')}';
+  }
+}
+
+/// Track info for CUE splitting, passed from the CUE parser
+class CueSplitTrackInfo {
+  final int number;
+  final String title;
+  final String artist;
+  final String isrc;
+  final String composer;
+  final double startSec;
+  final double endSec;
+
+  CueSplitTrackInfo({
+    required this.number,
+    required this.title,
+    required this.artist,
+    this.isrc = '',
+    this.composer = '',
+    required this.startSec,
+    required this.endSec,
+  });
+
+  factory CueSplitTrackInfo.fromJson(Map<String, dynamic> json) {
+    return CueSplitTrackInfo(
+      number: json['number'] as int? ?? 0,
+      title: json['title'] as String? ?? '',
+      artist: json['artist'] as String? ?? '',
+      isrc: json['isrc'] as String? ?? '',
+      composer: json['composer'] as String? ?? '',
+      startSec: (json['start_sec'] as num?)?.toDouble() ?? 0.0,
+      endSec: (json['end_sec'] as num?)?.toDouble() ?? -1.0,
+    );
+  }
 }
 
 class FFmpegResult {

@@ -901,6 +901,32 @@ func ReadFileMetadata(filePath string) (string, error) {
 	return string(jsonBytes), nil
 }
 
+// ParseCueSheet parses a .cue file and returns JSON with split information.
+// This is called from Dart to get track listing and timing data for CUE splitting.
+// audioDir, if non-empty, overrides the directory used for resolving the
+// referenced audio file (useful for SAF temp file scenarios).
+func ParseCueSheet(cuePath string, audioDir string) (string, error) {
+	return ParseCueFileJSON(cuePath, audioDir)
+}
+
+// ScanCueSheetForLibrary parses a .cue file and returns a JSON array of
+// LibraryScanResult entries (one per track). This is the SAF-friendly variant:
+//   - audioDir overrides where the referenced audio file is resolved
+//   - virtualPathPrefix replaces cuePath in filePath / id fields (e.g. a content:// URI)
+//   - fileModTime is stamped on every result (pass 0 to stat cuePath instead)
+func ScanCueSheetForLibrary(cuePath, audioDir, virtualPathPrefix string, fileModTime int64) (string, error) {
+	scanTime := time.Now().UTC().Format(time.RFC3339)
+	results, err := ScanCueFileForLibraryExt(cuePath, audioDir, virtualPathPrefix, fileModTime, scanTime)
+	if err != nil {
+		return "[]", err
+	}
+	jsonBytes, err := json.Marshal(results)
+	if err != nil {
+		return "[]", fmt.Errorf("failed to marshal cue scan results: %w", err)
+	}
+	return string(jsonBytes), nil
+}
+
 // EditFileMetadata writes metadata to an audio file.
 // For FLAC files, uses native Go FLAC library.
 // For MP3/Opus, returns the metadata map so Dart can use FFmpeg.

@@ -13,11 +13,14 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:spotiflac_android/providers/download_queue_provider.dart';
+import 'package:spotiflac_android/providers/local_library_provider.dart';
 import 'package:spotiflac_android/providers/playback_provider.dart';
+import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
 import 'package:spotiflac_android/services/ffmpeg_service.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/utils/logger.dart';
+import 'package:spotiflac_android/utils/mime_utils.dart';
 import 'package:spotiflac_android/utils/string_utils.dart';
 
 final _log = AppLogger('TrackMetadata');
@@ -214,10 +217,7 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
   }
 
   Future<void> _checkFile() async {
-    var filePath = _filePath;
-    if (filePath.startsWith('EXISTS:')) {
-      filePath = filePath.substring(7);
-    }
+    final filePath = cleanFilePath;
 
     bool exists = false;
     int? size;
@@ -544,9 +544,63 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
     );
   }
 
-  String get cleanFilePath {
+  /// The raw file path, with EXISTS: prefix stripped but #trackNN preserved.
+  /// Use this when you need the full virtual path (e.g. for display or DB lookups).
+  String get rawFilePath {
     final path = _filePath;
     return path.startsWith('EXISTS:') ? path.substring(7) : path;
+  }
+
+  /// The clean file path with both EXISTS: prefix and #trackNN suffix stripped.
+  /// Use this for actual filesystem/SAF operations.
+  String get cleanFilePath {
+    var path = _filePath;
+    if (path.startsWith('EXISTS:')) path = path.substring(7);
+    // Strip CUE virtual path suffix for filesystem operations
+    if (isCueVirtualPath(path)) path = stripCueTrackSuffix(path);
+    return path;
+  }
+
+  bool get _isCueVirtualTrack => isCueVirtualPath(rawFilePath);
+
+  String _cueVirtualTrackGuidance(BuildContext context) {
+    return 'This CUE track is virtual. Use ${context.l10n.cueSplitButton} first.';
+  }
+
+  void _showCueVirtualTrackSnackBar(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(_cueVirtualTrackGuidance(context))),
+    );
+  }
+
+  void _hideCurrentSnackBar() {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+  }
+
+  String get _l10nCueSplitFailed => context.l10n.cueSplitFailed;
+  String get _l10nCueSplitNoAudioFile => context.l10n.cueSplitNoAudioFile;
+
+  String _l10nCueSplitSplitting(int current, int total) {
+    return context.l10n.cueSplitSplitting(current, total);
+  }
+
+  String _l10nCueSplitSuccess(int count) {
+    return context.l10n.cueSplitSuccess(count);
+  }
+
+  void _showSnackBarMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  void _showLongSnackBarMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 60),
+      ),
+    );
   }
 
   String _formatPathForDisplay(String pathOrUri) {
@@ -1153,8 +1207,8 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
     bool fileExists,
     int? fileSize,
   ) {
-    final displayFilePath = _formatPathForDisplay(cleanFilePath);
-    final fileName = _extractFileNameFromPathOrUri(cleanFilePath);
+    final displayFilePath = _formatPathForDisplay(rawFilePath);
+    final fileName = _extractFileNameFromPathOrUri(rawFilePath);
     final fileExtension = fileName.contains('.')
         ? fileName.split('.').last.toUpperCase()
         : 'Unknown';
@@ -2365,7 +2419,7 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
           flex: 2,
           child: FilledButton.icon(
             onPressed: fileExists
-                ? () => _openFile(context, cleanFilePath)
+                ? () => _openFile(context, rawFilePath)
                 : null,
             icon: const Icon(Icons.play_arrow),
             label: Text(context.l10n.trackMetadataPlay),
@@ -2487,6 +2541,16 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
                     _showConvertSheet(context);
                   },
                 ),
+              if (_fileExists && _isCueFile)
+                ListTile(
+                  leading: const Icon(Icons.call_split),
+                  title: Text(context.l10n.cueSplitTitle),
+                  subtitle: Text(context.l10n.cueSplitSubtitle),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showCueSplitSheet(context);
+                  },
+                ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.share),
@@ -2524,11 +2588,34 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
         lower.endsWith('.ogg');
   }
 
+  /// Whether the current file is a CUE sheet (or CUE-referenced)
+  bool get _isCueFile {
+    // Check if the raw path has a CUE virtual path suffix
+    if (isCueVirtualPath(rawFilePath)) return true;
+    final lower = cleanFilePath.toLowerCase();
+    if (lower.endsWith('.cue')) return true;
+    // Check if local library item has cue+ format
+    if (_isLocalItem && _localLibraryItem != null) {
+      final format = _localLibraryItem!.format ?? '';
+      if (format.startsWith('cue+')) return true;
+    }
+    return false;
+  }
+
   String get _currentFileFormat {
+    // For CUE tracks, use the format from the library item (e.g. "cue+flac")
+    if (_isCueFile && _isLocalItem && _localLibraryItem != null) {
+      final format = _localLibraryItem!.format ?? '';
+      if (format.startsWith('cue+')) {
+        final audioFmt = format.substring(4).toUpperCase();
+        return 'CUE+$audioFmt';
+      }
+    }
     final lower = cleanFilePath.toLowerCase();
     if (lower.endsWith('.flac')) return 'FLAC';
     if (lower.endsWith('.mp3')) return 'MP3';
     if (lower.endsWith('.opus') || lower.endsWith('.ogg')) return 'Opus';
+    if (lower.endsWith('.cue')) return 'CUE';
     return 'Unknown';
   }
 
@@ -2764,6 +2851,470 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
         );
       },
     );
+  }
+
+  void _showCueSplitSheet(BuildContext context) async {
+    // Strip the #trackNN suffix from virtual CUE paths to get the real .cue path
+    var cuePath = cleanFilePath;
+    final trackSuffix = RegExp(r'#track\d+$');
+    if (trackSuffix.hasMatch(cuePath)) {
+      cuePath = cuePath.replaceFirst(trackSuffix, '');
+    }
+
+    // Show loading indicator
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Loading CUE sheet...')),
+    );
+
+    try {
+      final cueInfo = await PlatformBridge.parseCueSheet(cuePath);
+
+      if (!mounted) return;
+      _hideCurrentSnackBar();
+
+      if (cueInfo.containsKey('error')) {
+        _showSnackBarMessage(_l10nCueSplitNoAudioFile);
+        return;
+      }
+
+      final album = cueInfo['album'] as String? ?? 'Unknown Album';
+      final artist = cueInfo['artist'] as String? ?? 'Unknown Artist';
+      final audioPath = cueInfo['audio_path'] as String? ?? '';
+      final genre = cueInfo['genre'] as String? ?? '';
+      final date = cueInfo['date'] as String? ?? '';
+      final tracksRaw = cueInfo['tracks'] as List<dynamic>? ?? [];
+
+      if (audioPath.isEmpty) {
+        _showSnackBarMessage(_l10nCueSplitNoAudioFile);
+        return;
+      }
+
+      final tracks = tracksRaw
+          .map((t) => CueSplitTrackInfo.fromJson(t as Map<String, dynamic>))
+          .toList();
+
+      if (tracks.isEmpty) {
+        _showSnackBarMessage(_l10nCueSplitFailed);
+        return;
+      }
+
+      if (!mounted) return;
+
+      showModalBottomSheet(
+        context: this.context,
+        useRootNavigator: true,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (sheetContext) {
+          final colorScheme = Theme.of(sheetContext).colorScheme;
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.4,
+                        ),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    sheetContext.l10n.cueSplitTitle,
+                    style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    sheetContext.l10n.cueSplitAlbum(album),
+                    style: Theme.of(sheetContext).textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    sheetContext.l10n.cueSplitArtist(artist),
+                    style: Theme.of(sheetContext).textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    sheetContext.l10n.cueSplitTrackCount(tracks.length),
+                    style: Theme.of(sheetContext).textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Track list preview (scrollable, max 200px)
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 200),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: tracks.length,
+                      itemBuilder: (context, index) {
+                        final track = tracks[index];
+                        final duration = track.endSec > 0
+                            ? track.endSec - track.startSec
+                            : 0.0;
+                        final durationStr = duration > 0
+                            ? '${(duration ~/ 60).toString().padLeft(2, '0')}:${(duration.toInt() % 60).toString().padLeft(2, '0')}'
+                            : '';
+                        return ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            radius: 14,
+                            backgroundColor: colorScheme.primaryContainer,
+                            child: Text(
+                              '${track.number}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: colorScheme.onPrimaryContainer,
+                              ),
+                            ),
+                          ),
+                          title: Text(
+                            track.title,
+                            style: const TextStyle(fontSize: 13),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: track.artist.isNotEmpty
+                              ? Text(
+                                  track.artist,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                )
+                              : null,
+                          trailing: durationStr.isNotEmpty
+                              ? Text(
+                                  durationStr,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                )
+                              : null,
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        _confirmAndSplitCue(
+                          context: this.context,
+                          audioPath: audioPath,
+                          album: album,
+                          artist: artist,
+                          genre: genre,
+                          date: date,
+                          tracks: tracks,
+                        );
+                      },
+                      icon: const Icon(Icons.call_split),
+                      label: Text(sheetContext.l10n.cueSplitButton),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _hideCurrentSnackBar();
+      _showSnackBarMessage(_l10nCueSplitFailed);
+      _log.e('Failed to parse CUE sheet: $e');
+    }
+  }
+
+  void _confirmAndSplitCue({
+    required BuildContext context,
+    required String audioPath,
+    required String album,
+    required String artist,
+    required String genre,
+    required String date,
+    required List<CueSplitTrackInfo> tracks,
+  }) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(dialogContext.l10n.cueSplitConfirmTitle),
+          content: Text(
+            dialogContext.l10n.cueSplitConfirmMessage(album, tracks.length),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(dialogContext.l10n.dialogCancel),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _performCueSplit(
+                  audioPath: audioPath,
+                  album: album,
+                  artist: artist,
+                  genre: genre,
+                  date: date,
+                  tracks: tracks,
+                );
+              },
+              child: Text(dialogContext.l10n.cueSplitButton),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<Directory> _resolvePersistentCueSplitOutputDir() async {
+    final settings = ref.read(settingsProvider);
+    final queueState = ref.read(downloadQueueProvider);
+    final configuredOutputDir = queueState.outputDir.trim();
+    if (settings.storageMode != 'saf' &&
+        configuredOutputDir.isNotEmpty &&
+        !isContentUri(configuredOutputDir)) {
+      final dir = Directory(configuredOutputDir);
+      await dir.create(recursive: true);
+      return dir;
+    }
+
+    if (Platform.isAndroid) {
+      final externalDir = await getExternalStorageDirectory();
+      if (externalDir != null) {
+        final musicDir = Directory(
+          '${externalDir.parent.parent.parent.parent.path}'
+          '${Platform.pathSeparator}Music'
+          '${Platform.pathSeparator}SpotiFLAC',
+        );
+        await musicDir.create(recursive: true);
+        return musicDir;
+      }
+    }
+
+    final docsDir = await getApplicationDocumentsDirectory();
+    final fallbackDir = Directory(
+      '${docsDir.path}${Platform.pathSeparator}SpotiFLAC',
+    );
+    await fallbackDir.create(recursive: true);
+    return fallbackDir;
+  }
+
+  Future<List<String>?> _exportCueSplitOutputsToSaf({
+    required List<String> outputPaths,
+    required String treeUri,
+    required String relativeDir,
+  }) async {
+    final exportedUris = <String>[];
+    for (final path in outputPaths) {
+      final fileName = path.split(Platform.pathSeparator).last;
+      final safUri = await PlatformBridge.createSafFileFromPath(
+        treeUri: treeUri,
+        relativeDir: relativeDir,
+        fileName: fileName,
+        mimeType: audioMimeTypeForPath(path),
+        srcPath: path,
+      );
+      if (safUri != null && safUri.isNotEmpty) {
+        exportedUris.add(safUri);
+      }
+    }
+    return exportedUris.isEmpty ? null : exportedUris;
+  }
+
+  Future<void> _performCueSplit({
+    required String audioPath,
+    required String album,
+    required String artist,
+    required String genre,
+    required String date,
+    required List<CueSplitTrackInfo> tracks,
+  }) async {
+    if (_isConverting) return;
+    setState(() => _isConverting = true);
+
+    String? safTempAudioPath;
+    Directory? tempSplitDir;
+    try {
+      // For SAF content:// audio paths, copy to temp for FFmpeg processing
+      String workingAudioPath = audioPath;
+      final isSafSource = isContentUri(audioPath);
+      if (isSafSource) {
+        final tempPath = await PlatformBridge.copyContentUriToTemp(audioPath);
+        if (tempPath == null || tempPath.isEmpty) {
+          throw Exception('Failed to copy SAF audio file to temp');
+        }
+        safTempAudioPath = tempPath;
+        workingAudioPath = tempPath;
+      }
+
+      // Determine output directory
+      final String outputDir;
+      final treeUri = !_isLocalItem ? (_downloadItem?.downloadTreeUri ?? '') : '';
+      final relativeDir = !_isLocalItem ? (_downloadItem?.safRelativeDir ?? '') : '';
+      final writeBackToSaf = isSafSource && treeUri.isNotEmpty;
+      if (writeBackToSaf) {
+        final tempDir = await getTemporaryDirectory();
+        tempSplitDir = Directory(
+          '${tempDir.path}${Platform.pathSeparator}'
+          'cue_split_${DateTime.now().millisecondsSinceEpoch}',
+        );
+        await tempSplitDir.create(recursive: true);
+        outputDir = tempSplitDir.path;
+      } else if (isSafSource) {
+        final persistentDir = await _resolvePersistentCueSplitOutputDir();
+        outputDir = persistentDir.path;
+      } else {
+        outputDir = File(audioPath).parent.path;
+      }
+
+      if (!mounted) return;
+      _showLongSnackBarMessage(_l10nCueSplitSplitting(1, tracks.length));
+
+      // Extract cover from audio file for embedding
+      String? coverPath;
+      try {
+        final tempDir = await getTemporaryDirectory();
+        final coverOutput =
+            '${tempDir.path}${Platform.pathSeparator}cue_cover_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final coverResult = await PlatformBridge.extractCoverToFile(
+          workingAudioPath,
+          coverOutput,
+        );
+        if (coverResult['error'] == null) {
+          coverPath = coverOutput;
+        }
+      } catch (_) {}
+
+      final albumMetadata = <String, String>{
+        'artist': artist,
+        'album': album,
+        'genre': genre,
+        'date': date,
+      };
+
+      final outputPaths = await FFmpegService.splitCueToTracks(
+        audioPath: workingAudioPath,
+        outputDir: outputDir,
+        tracks: tracks,
+        albumMetadata: albumMetadata,
+        coverPath: coverPath,
+        onProgress: (current, total) {
+          if (mounted) {
+            _hideCurrentSnackBar();
+            _showLongSnackBarMessage(_l10nCueSplitSplitting(current, total));
+          }
+        },
+      );
+
+      var finalOutputPaths = outputPaths;
+
+      // Embed cover art into split FLAC files using Go backend
+      if (coverPath != null && finalOutputPaths != null) {
+        for (final path in finalOutputPaths) {
+          if (path.toLowerCase().endsWith('.flac')) {
+            try {
+              // Read existing metadata first
+              final metadata = await PlatformBridge.readFileMetadata(path);
+              if (metadata['error'] == null) {
+                final fields = <String, String>{
+                  'cover_path': coverPath,
+                };
+                // Preserve existing fields
+                for (final entry in metadata.entries) {
+                  if (entry.key == 'error' || entry.value == null) continue;
+                  final v = entry.value.toString().trim();
+                  if (v.isNotEmpty) {
+                    fields[entry.key] = v;
+                  }
+                }
+                await PlatformBridge.editFileMetadata(path, fields);
+              }
+            } catch (e) {
+              _log.w('Failed to embed cover to split track: $e');
+            }
+          }
+        }
+      }
+
+      if (writeBackToSaf && finalOutputPaths != null) {
+        final exportedUris = await _exportCueSplitOutputsToSaf(
+          outputPaths: finalOutputPaths,
+          treeUri: treeUri,
+          relativeDir: relativeDir,
+        );
+        finalOutputPaths = exportedUris;
+      }
+
+      // Cleanup cover temp
+      if (coverPath != null) {
+        try {
+          await File(coverPath).delete();
+        } catch (_) {}
+      }
+
+      if (mounted) {
+        _hideCurrentSnackBar();
+        if (finalOutputPaths != null && finalOutputPaths.isNotEmpty) {
+          _showSnackBarMessage(_l10nCueSplitSuccess(finalOutputPaths.length));
+        } else {
+          _showSnackBarMessage(_l10nCueSplitFailed);
+        }
+      }
+    } catch (e) {
+      _log.e('CUE split failed: $e');
+      if (mounted) {
+        _hideCurrentSnackBar();
+        _showSnackBarMessage(_l10nCueSplitFailed);
+      }
+    } finally {
+      // Cleanup SAF temp audio copy
+      if (safTempAudioPath != null) {
+        try {
+          await File(safTempAudioPath).delete();
+        } catch (_) {}
+      }
+      if (tempSplitDir != null) {
+        try {
+          await tempSplitDir.delete(recursive: true);
+        } catch (_) {}
+      }
+      if (mounted) {
+        setState(() => _isConverting = false);
+      }
+    }
   }
 
   void _confirmAndConvert({
@@ -3117,14 +3668,17 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
           TextButton(
             onPressed: () async {
               if (_isLocalItem) {
-                // For local items, just delete the file
-                try {
-                  await deleteFile(cleanFilePath);
-                } catch (e) {
-                  debugPrint('Failed to delete file: $e');
+                if (_isCueVirtualTrack && _localLibraryItem != null) {
+                  await ref
+                      .read(localLibraryProvider.notifier)
+                      .removeItem(_localLibraryItem!.id);
+                } else {
+                  try {
+                    await deleteFile(cleanFilePath);
+                  } catch (e) {
+                    debugPrint('Failed to delete file: $e');
+                  }
                 }
-                // Also remove from local library database
-                // ref.read(localLibraryProvider.notifier).removeItem(_localLibraryItem!.id);
               } else {
                 try {
                   await deleteFile(cleanFilePath);
@@ -3153,6 +3707,10 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
   }
 
   Future<void> _openFile(BuildContext context, String filePath) async {
+    if (isCueVirtualPath(filePath)) {
+      _showCueVirtualTrackSnackBar(context);
+      return;
+    }
     try {
       await ref
           .read(playbackProvider.notifier)
@@ -3185,6 +3743,11 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
   }
 
   Future<void> _shareFile(BuildContext context) async {
+    if (_isCueVirtualTrack) {
+      _showCueVirtualTrackSnackBar(context);
+      return;
+    }
+
     String sharePath = cleanFilePath;
     if (!await fileExists(sharePath)) {
       if (context.mounted) {

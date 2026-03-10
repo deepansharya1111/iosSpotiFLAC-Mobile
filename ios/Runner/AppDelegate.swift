@@ -969,6 +969,15 @@ import Gobackend  // Import Go framework
             if let error = error { throw error }
             return response
             
+        // CUE Sheet Parsing
+        case "parseCueSheet":
+            let args = call.arguments as! [String: Any]
+            let cuePath = args["cue_path"] as! String
+            let audioDir = args["audio_dir"] as? String ?? ""
+            let response = GobackendParseCueSheet(cuePath, audioDir, &error)
+            if let error = error { throw error }
+            return response
+            
         default:
             throw NSError(
                 domain: "SpotiFLAC",

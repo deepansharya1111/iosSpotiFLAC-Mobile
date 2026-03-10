@@ -38,6 +38,14 @@ class _LocalAlbumScreenState extends ConsumerState<LocalAlbumScreen> {
   final ScrollController _scrollController = ScrollController();
   late List<LocalLibraryItem> _sortedTracksCache;
   late Map<int, List<LocalLibraryItem>> _discGroupsCache;
+
+  void _showCueVirtualTrackSnackBar() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(cueVirtualTrackRequiresSplitMessage),
+      ),
+    );
+  }
   late List<int> _sortedDiscNumbersCache;
   late bool _hasMultipleDiscsCache;
   String? _commonQualityCache;
@@ -178,9 +186,11 @@ class _LocalAlbumScreenState extends ConsumerState<LocalAlbumScreen> {
       for (final id in idsToDelete) {
         final item = tracksById[id];
         if (item != null) {
-          try {
-            await deleteFile(item.filePath);
-          } catch (_) {}
+          if (!isCueVirtualPath(item.filePath)) {
+            try {
+              await deleteFile(item.filePath);
+            } catch (_) {}
+          }
           await libraryNotifier.removeItem(id);
           deletedCount++;
         }
@@ -203,6 +213,10 @@ class _LocalAlbumScreenState extends ConsumerState<LocalAlbumScreen> {
   }
 
   Future<void> _openFile(LocalLibraryItem track) async {
+    if (isCueVirtualPath(track.filePath)) {
+      _showCueVirtualTrackSnackBar();
+      return;
+    }
     try {
       await ref
           .read(playbackProvider.notifier)

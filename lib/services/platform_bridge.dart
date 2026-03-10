@@ -1298,4 +1298,20 @@ class PlatformBridge {
     await _channel.invokeMethod('clearStoreCache');
   }
 
+  /// Parse a .cue file and return split information (track listing, timing, metadata).
+  /// Returns a map with: cue_path, audio_path, album, artist, genre, date, tracks[]
+  /// Each track has: number, title, artist, isrc, composer, start_sec, end_sec
+  /// [audioDir] optionally overrides the directory for audio file resolution (used for SAF).
+  static Future<Map<String, dynamic>> parseCueSheet(
+    String cuePath, {
+    String audioDir = '',
+  }) async {
+    _log.i('parseCueSheet: $cuePath (audioDir: $audioDir)');
+    final result = await _channel.invokeMethod('parseCueSheet', {
+      'cue_path': cuePath,
+      'audio_dir': audioDir,
+    });
+    return jsonDecode(result as String) as Map<String, dynamic>;
+  }
+
 }

@@ -3812,6 +3812,78 @@ abstract class AppLocalizations {
   /// **'Conversion failed'**
   String get trackConvertFailed;
 
+  /// Title for CUE split bottom sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Split CUE Sheet'**
+  String get cueSplitTitle;
+
+  /// Subtitle for CUE split menu item
+  ///
+  /// In en, this message translates to:
+  /// **'Split CUE+FLAC into individual tracks'**
+  String get cueSplitSubtitle;
+
+  /// Album name in CUE split sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Album: {album}'**
+  String cueSplitAlbum(String album);
+
+  /// Artist name in CUE split sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Artist: {artist}'**
+  String cueSplitArtist(String artist);
+
+  /// Number of tracks in CUE sheet
+  ///
+  /// In en, this message translates to:
+  /// **'{count} tracks'**
+  String cueSplitTrackCount(int count);
+
+  /// CUE split confirmation dialog title
+  ///
+  /// In en, this message translates to:
+  /// **'Split CUE Album'**
+  String get cueSplitConfirmTitle;
+
+  /// CUE split confirmation dialog message
+  ///
+  /// In en, this message translates to:
+  /// **'Split \"{album}\" into {count} individual FLAC files?\n\nFiles will be saved to the same directory.'**
+  String cueSplitConfirmMessage(String album, int count);
+
+  /// Snackbar while splitting CUE
+  ///
+  /// In en, this message translates to:
+  /// **'Splitting CUE sheet... ({current}/{total})'**
+  String cueSplitSplitting(int current, int total);
+
+  /// Snackbar after successful CUE split
+  ///
+  /// In en, this message translates to:
+  /// **'Split into {count} tracks successfully'**
+  String cueSplitSuccess(int count);
+
+  /// Snackbar when CUE split fails
+  ///
+  /// In en, this message translates to:
+  /// **'CUE split failed'**
+  String get cueSplitFailed;
+
+  /// Error when CUE audio file is missing
+  ///
+  /// In en, this message translates to:
+  /// **'Audio file not found for this CUE sheet'**
+  String get cueSplitNoAudioFile;
+
+  /// Button text to start CUE splitting
+  ///
+  /// In en, this message translates to:
+  /// **'Split into Tracks'**
+  String get cueSplitButton;
+
   /// Generic action button - create
   ///
   /// In en, this message translates to:

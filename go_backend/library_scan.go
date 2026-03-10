@@ -63,6 +63,7 @@ var supportedAudioFormats = map[string]bool{
 	".mp3":  true,
 	".opus": true,
 	".ogg":  true,
+	".cue":  true,
 }
 
 type libraryAudioFileInfo struct {
@@ -166,6 +167,23 @@ func ScanLibraryFolder(folderPath string) (string, error) {
 	scanTime := time.Now().UTC().Format(time.RFC3339)
 	errorCount := 0
 
+	// Track audio files referenced by .cue sheets to avoid duplicates
+	cueReferencedAudioFiles := make(map[string]bool)
+
+	// First pass: scan .cue files to collect referenced audio paths
+	for _, filePath := range audioFiles {
+		ext := strings.ToLower(filepath.Ext(filePath))
+		if ext == ".cue" {
+			sheet, err := ParseCueFile(filePath)
+			if err == nil && sheet.FileName != "" {
+				audioPath := ResolveCueAudioPath(filePath, sheet.FileName)
+				if audioPath != "" {
+					cueReferencedAudioFiles[audioPath] = true
+				}
+			}
+		}
+	}
+
 	for i, filePath := range audioFiles {
 		select {
 		case <-cancelCh:
@@ -178,6 +196,28 @@ func ScanLibraryFolder(folderPath string) (string, error) {
 		libraryScanProgress.CurrentFile = filepath.Base(filePath)
 		libraryScanProgress.ProgressPct = float64(i+1) / float64(totalFiles) * 100
 		libraryScanProgressMu.Unlock()
+
+		ext := strings.ToLower(filepath.Ext(filePath))
+
+		// Handle .cue files: produce multiple track results
+		if ext == ".cue" {
+			cueResults, err := ScanCueFileForLibrary(filePath, scanTime)
+			if err != nil {
+				errorCount++
+				GoLog("[LibraryScan] Error scanning cue %s: %v\n", filePath, err)
+				continue
+			}
+			results = append(results, cueResults...)
+			GoLog("[LibraryScan] CUE sheet %s: %d tracks\n", filepath.Base(filePath), len(cueResults))
+			continue
+		}
+
+		// Skip audio files that are referenced by a .cue sheet
+		// (they will be represented by the cue sheet's track entries instead)
+		if cueReferencedAudioFiles[filePath] {
+			GoLog("[LibraryScan] Skipping %s (referenced by .cue sheet)\n", filepath.Base(filePath))
+			continue
+		}
 
 		result, err := scanAudioFile(filePath, scanTime)
 		if err != nil {
@@ -502,9 +542,44 @@ func ScanLibraryFolderIncremental(folderPath, existingFilesJSON string) (string,
 	var filesToScan []libraryAudioFileInfo
 	skippedCount := 0
 
+	// Build a set of existing CUE virtual path base files for incremental matching.
+	// CUE tracks are stored with virtual paths like "/path/album.cue#track01".
+	// We need to match these against the actual .cue file's modTime.
+	cueBaseModTimes := make(map[string]int64) // base cue path -> modTime from disk
+	for _, f := range currentFiles {
+		if strings.ToLower(filepath.Ext(f.path)) == ".cue" {
+			cueBaseModTimes[f.path] = f.modTime
+		}
+	}
+
 	for _, f := range currentFiles {
 		existingModTime, exists := existingFiles[f.path]
 		if !exists {
+			// For .cue files, also check if any virtual path entries exist
+			if strings.ToLower(filepath.Ext(f.path)) == ".cue" {
+				hasCueTracks := false
+				for existingPath := range existingFiles {
+					if strings.HasPrefix(existingPath, f.path+"#track") {
+						hasCueTracks = true
+						break
+					}
+				}
+				if hasCueTracks {
+					// CUE file exists in DB via virtual paths; check if modTime changed
+					// Use modTime from any virtual path (they all share the same .cue modTime)
+					for existingPath, modTime := range existingFiles {
+						if strings.HasPrefix(existingPath, f.path+"#track") {
+							if f.modTime == modTime {
+								skippedCount++
+							} else {
+								filesToScan = append(filesToScan, f)
+							}
+							break
+						}
+					}
+					continue
+				}
+			}
 			filesToScan = append(filesToScan, f)
 		} else if f.modTime != existingModTime {
 			filesToScan = append(filesToScan, f)
@@ -515,7 +590,16 @@ func ScanLibraryFolderIncremental(folderPath, existingFilesJSON string) (string,
 
 	var deletedPaths []string
 	for existingPath := range existingFiles {
-		if !currentPathSet[existingPath] {
+		// For CUE virtual paths (e.g. "/path/album.cue#track01"),
+		// check if the base .cue file still exists on disk
+		if idx := strings.LastIndex(existingPath, "#track"); idx > 0 {
+			baseCuePath := existingPath[:idx]
+			if currentPathSet[baseCuePath] {
+				continue // Base .cue file still exists, not deleted
+			}
+			// Base CUE file is gone, mark virtual path as deleted
+			deletedPaths = append(deletedPaths, existingPath)
+		} else if !currentPathSet[existingPath] {
 			deletedPaths = append(deletedPaths, existingPath)
 		}
 	}
@@ -544,6 +628,21 @@ func ScanLibraryFolderIncremental(folderPath, existingFilesJSON string) (string,
 	scanTime := time.Now().UTC().Format(time.RFC3339)
 	errorCount := 0
 
+	// Track audio files referenced by .cue sheets to avoid duplicates (incremental)
+	cueReferencedAudioFilesInc := make(map[string]bool)
+	for _, f := range filesToScan {
+		ext := strings.ToLower(filepath.Ext(f.path))
+		if ext == ".cue" {
+			sheet, err := ParseCueFile(f.path)
+			if err == nil && sheet.FileName != "" {
+				audioPath := ResolveCueAudioPath(f.path, sheet.FileName)
+				if audioPath != "" {
+					cueReferencedAudioFilesInc[audioPath] = true
+				}
+			}
+		}
+	}
+
 	for i, f := range filesToScan {
 		select {
 		case <-cancelCh:
@@ -556,6 +655,25 @@ func ScanLibraryFolderIncremental(folderPath, existingFilesJSON string) (string,
 		libraryScanProgress.CurrentFile = filepath.Base(f.path)
 		libraryScanProgress.ProgressPct = float64(skippedCount+i+1) / float64(totalFiles) * 100
 		libraryScanProgressMu.Unlock()
+
+		ext := strings.ToLower(filepath.Ext(f.path))
+
+		// Handle .cue files: produce multiple track results
+		if ext == ".cue" {
+			cueResults, err := ScanCueFileForLibrary(f.path, scanTime)
+			if err != nil {
+				errorCount++
+				GoLog("[LibraryScan] Error scanning cue %s: %v\n", f.path, err)
+				continue
+			}
+			results = append(results, cueResults...)
+			continue
+		}
+
+		// Skip audio files referenced by .cue sheets
+		if cueReferencedAudioFilesInc[f.path] {
+			continue
+		}
 
 		result, err := scanAudioFile(f.path, scanTime)
 		if err != nil {

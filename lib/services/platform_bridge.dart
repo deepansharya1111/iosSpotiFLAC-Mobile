@@ -20,51 +20,6 @@ class PlatformBridge {
     return jsonDecode(result as String) as Map<String, dynamic>;
   }
 
-  static Future<Map<String, dynamic>> getSpotifyMetadata(String url) async {
-    _log.d('getSpotifyMetadata: $url');
-    final result = await _channel.invokeMethod('getSpotifyMetadata', {
-      'url': url,
-    });
-    return jsonDecode(result as String) as Map<String, dynamic>;
-  }
-
-  static Future<Map<String, dynamic>> searchSpotify(
-    String query, {
-    int limit = 10,
-  }) async {
-    _log.d('searchSpotify: "$query" (limit: $limit)');
-    final result = await _channel.invokeMethod('searchSpotify', {
-      'query': query,
-      'limit': limit,
-    });
-    return jsonDecode(result as String) as Map<String, dynamic>;
-  }
-
-  static Future<Map<String, dynamic>> searchSpotifyAll(
-    String query, {
-    int trackLimit = 15,
-    int artistLimit = 3,
-  }) async {
-    _log.d('searchSpotifyAll: "$query"');
-    final result = await _channel.invokeMethod('searchSpotifyAll', {
-      'query': query,
-      'track_limit': trackLimit,
-      'artist_limit': artistLimit,
-    });
-    return jsonDecode(result as String) as Map<String, dynamic>;
-  }
-
-  static Future<Map<String, dynamic>> getSpotifyRelatedArtists(
-    String artistId, {
-    int limit = 12,
-  }) async {
-    final result = await _channel.invokeMethod('getSpotifyRelatedArtists', {
-      'artist_id': artistId,
-      'limit': limit,
-    });
-    return jsonDecode(result as String) as Map<String, dynamic>;
-  }
-
   static Future<Map<String, dynamic>> checkAvailability(
     String spotifyId,
     String isrc,
@@ -514,21 +469,6 @@ class PlatformBridge {
 
   static Future<bool> isDownloadServiceRunning() async {
     final result = await _channel.invokeMethod('isDownloadServiceRunning');
-    return result as bool;
-  }
-
-  static Future<void> setSpotifyCredentials(
-    String clientId,
-    String clientSecret,
-  ) async {
-    await _channel.invokeMethod('setSpotifyCredentials', {
-      'client_id': clientId,
-      'client_secret': clientSecret,
-    });
-  }
-
-  static Future<bool> hasSpotifyCredentials() async {
-    final result = await _channel.invokeMethod('hasSpotifyCredentials');
     return result as bool;
   }
 
@@ -1313,5 +1253,4 @@ class PlatformBridge {
     });
     return jsonDecode(result as String) as Map<String, dynamic>;
   }
-
 }

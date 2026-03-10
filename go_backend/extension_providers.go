@@ -644,8 +644,26 @@ func GetProviderPriority() []string {
 func SetMetadataProviderPriority(providerIDs []string) {
 	metadataProviderPriorityMu.Lock()
 	defer metadataProviderPriorityMu.Unlock()
-	metadataProviderPriority = providerIDs
-	GoLog("[Extension] Metadata provider priority set: %v\n", providerIDs)
+
+	sanitized := make([]string, 0, len(providerIDs)+1)
+	seen := map[string]struct{}{}
+	for _, providerID := range providerIDs {
+		providerID = strings.TrimSpace(providerID)
+		if providerID == "" || providerID == "spotify" {
+			continue
+		}
+		if _, exists := seen[providerID]; exists {
+			continue
+		}
+		seen[providerID] = struct{}{}
+		sanitized = append(sanitized, providerID)
+	}
+	if _, exists := seen["deezer"]; !exists {
+		sanitized = append([]string{"deezer"}, sanitized...)
+	}
+
+	metadataProviderPriority = sanitized
+	GoLog("[Extension] Metadata provider priority set: %v\n", sanitized)
 }
 
 func GetMetadataProviderPriority() []string {
@@ -653,7 +671,7 @@ func GetMetadataProviderPriority() []string {
 	defer metadataProviderPriorityMu.RUnlock()
 
 	if len(metadataProviderPriority) == 0 {
-		return []string{"deezer", "spotify"}
+		return []string{"deezer"}
 	}
 
 	result := make([]string, len(metadataProviderPriority))

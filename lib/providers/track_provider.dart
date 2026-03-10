@@ -458,7 +458,8 @@ class TrackNotifier extends Notifier<TrackState> {
       }
 
       // If URL doesn't match any known service, it's unrecognized
-      final isSpotifyUrl = url.contains('open.spotify.com') ||
+      final isSpotifyUrl =
+          url.contains('open.spotify.com') ||
           url.contains('spotify.link') ||
           url.startsWith('spotify:');
       if (!isSpotifyUrl) {
@@ -546,11 +547,7 @@ class TrackNotifier extends Notifier<TrackState> {
     }
   }
 
-  Future<void> search(
-    String query, {
-    String? metadataSource,
-    String? filterOverride,
-  }) async {
+  Future<void> search(String query, {String? filterOverride}) async {
     final requestId = ++_currentRequestId;
 
     // Preserve selected filter during loading
@@ -576,7 +573,7 @@ class TrackNotifier extends Notifier<TrackState> {
           searchProvider != null &&
           searchProvider.isNotEmpty;
 
-      final source = metadataSource ?? 'deezer';
+      const source = 'deezer';
 
       _log.i(
         'Search started: source=$source, query="$query", useExtensions=$useExtensions, filter=$currentFilter',
@@ -602,32 +599,20 @@ class TrackNotifier extends Notifier<TrackState> {
             }
           }
         } catch (e) {
-          _log.w('Extension search failed, falling back to built-in: $e');
+          _log.w('Extension search failed, falling back to Deezer: $e');
         }
       }
 
-      if (source == 'deezer') {
-        _log.d('Calling Deezer search API...');
-        results = await PlatformBridge.searchDeezerAll(
-          query,
-          trackLimit: 20,
-          artistLimit: 2,
-          filter: currentFilter,
-        );
-        _log.i(
-          'Deezer returned ${(results['tracks'] as List?)?.length ?? 0} tracks, ${(results['artists'] as List?)?.length ?? 0} artists, ${(results['albums'] as List?)?.length ?? 0} albums',
-        );
-      } else {
-        _log.d('Calling Spotify search API...');
-        results = await PlatformBridge.searchSpotifyAll(
-          query,
-          trackLimit: 20,
-          artistLimit: 2,
-        );
-        _log.i(
-          'Spotify returned ${(results['tracks'] as List?)?.length ?? 0} tracks, ${(results['artists'] as List?)?.length ?? 0} artists',
-        );
-      }
+      _log.d('Calling Deezer search API...');
+      results = await PlatformBridge.searchDeezerAll(
+        query,
+        trackLimit: 20,
+        artistLimit: 2,
+        filter: currentFilter,
+      );
+      _log.i(
+        'Deezer returned ${(results['tracks'] as List?)?.length ?? 0} tracks, ${(results['artists'] as List?)?.length ?? 0} artists, ${(results['albums'] as List?)?.length ?? 0} albums',
+      );
 
       if (!_isRequestValid(requestId)) {
         _log.w('Search request cancelled (requestId=$requestId)');

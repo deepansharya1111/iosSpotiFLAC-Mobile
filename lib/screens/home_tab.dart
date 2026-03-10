@@ -549,11 +549,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
       }
       await ref
           .read(trackProvider.notifier)
-          .search(
-            query,
-            metadataSource: settings.metadataSource,
-            filterOverride: selectedFilter,
-          );
+          .search(query, filterOverride: selectedFilter);
     }
     ref.read(settingsProvider.notifier).setHasSearchedBefore();
   }
@@ -587,26 +583,24 @@ class _HomeTabState extends ConsumerState<HomeTab>
       if (trackState.error != null && mounted) {
         final l10n = context.l10n;
         final errorMsg = trackState.error!;
-        final isRateLimit = errorMsg.contains('429') ||
+        final isRateLimit =
+            errorMsg.contains('429') ||
             errorMsg.toLowerCase().contains('rate limit') ||
             errorMsg.toLowerCase().contains('too many requests');
         final displayMessage = errorMsg == 'url_not_recognized'
             ? l10n.errorUrlNotRecognizedMessage
             : isRateLimit
-                ? l10n.errorRateLimitedMessage
-                : l10n.errorUrlFetchFailed;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(displayMessage)),
-        );
+            ? l10n.errorRateLimitedMessage
+            : l10n.errorUrlFetchFailed;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(displayMessage)));
         ref.read(trackProvider.notifier).clear();
       } else {
         _navigateToDetailIfNeeded();
       }
     } else {
-      final settings = ref.read(settingsProvider);
-      await ref
-          .read(trackProvider.notifier)
-          .search(url, metadataSource: settings.metadataSource);
+      await ref.read(trackProvider.notifier).search(url);
     }
     ref.read(settingsProvider.notifier).setHasSearchedBefore();
   }
@@ -2315,10 +2309,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
                     const SizedBox(height: 4),
                     Text(
                       l10n.errorUrlNotRecognizedMessage,
-                      style: TextStyle(
-                        color: colorScheme.error,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: colorScheme.error, fontSize: 12),
                     ),
                   ],
                 ),
@@ -2971,9 +2962,6 @@ class _SearchProviderDropdown extends ConsumerWidget {
     final currentProvider = ref.watch(
       settingsProvider.select((s) => s.searchProvider),
     );
-    final metadataSource = ref.watch(
-      settingsProvider.select((s) => s.metadataSource),
-    );
     final extensions = ref.watch(extensionProvider.select((s) => s.extensions));
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -3051,7 +3039,7 @@ class _SearchProviderDropdown extends ConsumerWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    metadataSource == 'spotify' ? 'Spotify' : 'Deezer',
+                    'Deezer',
                     style: TextStyle(
                       fontWeight:
                           currentProvider == null || currentProvider.isEmpty

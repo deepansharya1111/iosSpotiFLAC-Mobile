@@ -32,126 +32,6 @@ func ParseSpotifyURL(url string) (string, error) {
 	return string(jsonBytes), nil
 }
 
-func SetSpotifyAPICredentials(clientID, clientSecret string) {
-	SetSpotifyCredentials(clientID, clientSecret)
-}
-
-func CheckSpotifyCredentials() bool {
-	return HasSpotifyCredentials()
-}
-
-func GetSpotifyMetadata(spotifyURL string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	client, err := NewSpotifyMetadataClient()
-	if err != nil {
-		if shouldTrySpotFetchFallback(err) {
-			data, apiErr := GetSpotifyDataWithAPI(ctx, spotifyURL, DefaultSpotFetchAPIBaseURL)
-			if apiErr == nil {
-				jsonBytes, marshalErr := json.Marshal(data)
-				if marshalErr != nil {
-					return "", marshalErr
-				}
-				return string(jsonBytes), nil
-			}
-		}
-		return "", err
-	}
-	data, err := client.GetFilteredData(ctx, spotifyURL, false, 0)
-	if err != nil {
-		if shouldTrySpotFetchFallback(err) {
-			fallbackData, apiErr := GetSpotifyDataWithAPI(ctx, spotifyURL, DefaultSpotFetchAPIBaseURL)
-			if apiErr == nil {
-				jsonBytes, marshalErr := json.Marshal(fallbackData)
-				if marshalErr != nil {
-					return "", marshalErr
-				}
-				return string(jsonBytes), nil
-			}
-		}
-		return "", err
-	}
-
-	jsonBytes, err := json.Marshal(data)
-	if err != nil {
-		return "", err
-	}
-
-	return string(jsonBytes), nil
-}
-
-func SearchSpotify(query string, limit int) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	client, err := NewSpotifyMetadataClient()
-	if err != nil {
-		return "", err
-	}
-	results, err := client.SearchTracks(ctx, query, limit)
-	if err != nil {
-		return "", err
-	}
-
-	jsonBytes, err := json.Marshal(results)
-	if err != nil {
-		return "", err
-	}
-
-	return string(jsonBytes), nil
-}
-
-func SearchSpotifyAll(query string, trackLimit, artistLimit int) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	client, err := NewSpotifyMetadataClient()
-	if err != nil {
-		return "", err
-	}
-	results, err := client.SearchAll(ctx, query, trackLimit, artistLimit)
-	if err != nil {
-		return "", err
-	}
-
-	jsonBytes, err := json.Marshal(results)
-	if err != nil {
-		return "", err
-	}
-
-	return string(jsonBytes), nil
-}
-
-func GetSpotifyRelatedArtists(artistID string, limit int) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	client, err := NewSpotifyMetadataClient()
-	if err != nil {
-		return "", err
-	}
-
-	normalizedArtistID := strings.TrimSpace(strings.TrimPrefix(artistID, "spotify:"))
-	if normalizedArtistID == "" {
-		return "", fmt.Errorf("invalid Spotify artist ID")
-	}
-
-	artists, err := client.GetRelatedArtists(ctx, normalizedArtistID, limit)
-	if err != nil {
-		return "", err
-	}
-
-	resp := map[string]interface{}{
-		"artists": artists,
-	}
-	jsonBytes, err := json.Marshal(resp)
-	if err != nil {
-		return "", err
-	}
-	return string(jsonBytes), nil
-}
-
 func CheckAvailability(spotifyID, isrc string) (string, error) {
 	client := NewSongLinkClient()
 	availability, err := client.CheckTrackAvailability(spotifyID, isrc)
@@ -1439,28 +1319,6 @@ func GetSpotifyMetadataWithDeezerFallback(spotifyURL string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	var spotifyErr error
-
-	client, err := NewSpotifyMetadataClient()
-	if err != nil {
-		LogWarn("Spotify", "Credentials not configured, falling back to Deezer")
-		spotifyErr = err
-	} else {
-		data, err := client.GetFilteredData(ctx, spotifyURL, false, 0)
-		if err == nil {
-			jsonBytes, err := json.Marshal(data)
-			if err != nil {
-				return "", err
-			}
-			return string(jsonBytes), nil
-		}
-
-		spotifyErr = err
-		if !shouldTrySpotFetchFallback(err) {
-			return "", err
-		}
-	}
-
 	spotFetchData, apiErr := GetSpotifyDataWithAPI(ctx, spotifyURL, DefaultSpotFetchAPIBaseURL)
 	if apiErr == nil {
 		GoLog("[Fallback] Spotify metadata fetched via SpotFetch API\n")
@@ -1474,9 +1332,6 @@ func GetSpotifyMetadataWithDeezerFallback(spotifyURL string) (string, error) {
 
 	parsed, parseErr := parseSpotifyURI(spotifyURL)
 	if parseErr != nil {
-		if spotifyErr != nil {
-			return "", fmt.Errorf("spotify failed (%v), SpotFetch fallback failed (%v), and URL parsing failed: %w", spotifyErr, apiErr, parseErr)
-		}
 		return "", fmt.Errorf("SpotFetch fallback failed (%v) and URL parsing failed: %w", apiErr, parseErr)
 	}
 
@@ -1487,15 +1342,9 @@ func GetSpotifyMetadataWithDeezerFallback(spotifyURL string) (string, error) {
 	}
 
 	if parsed.Type == "artist" {
-		if spotifyErr != nil {
-			return "", fmt.Errorf("spotify metadata unavailable (%v) and SpotFetch fallback failed (%v). Artist pages require Spotify/SpotFetch API", spotifyErr, apiErr)
-		}
-		return "", fmt.Errorf("SpotFetch fallback failed (%v). Artist pages require Spotify/SpotFetch API", apiErr)
+		return "", fmt.Errorf("SpotFetch fallback failed (%v). Artist pages now require SpotFetch or a metadata extension such as spotify-web", apiErr)
 	}
 
-	if spotifyErr != nil {
-		return "", fmt.Errorf("spotify metadata unavailable (%v), SpotFetch fallback failed (%v), and Deezer conversion is unavailable for playlists", spotifyErr, apiErr)
-	}
 	return "", fmt.Errorf("SpotFetch fallback failed (%v), and Deezer conversion is unavailable for playlists", apiErr)
 }
 
@@ -1826,8 +1675,8 @@ func ReEnrichFile(requestJSON string) (string, error) {
 
 	GoLog("[ReEnrich] Starting re-enrichment for: %s\n", req.FilePath)
 
-	// When search_online is true, search for metadata from internet
-	// Priority: 1) Deezer (reliable, no credentials) 2) Extension providers (spotify-web etc) 3) Spotify built-in API (last resort, deprecated)
+	// When search_online is true, search for metadata from internet.
+	// Priority: 1) Deezer (reliable, no credentials) 2) Extension providers (spotify-web etc)
 	if req.SearchOnline && req.TrackName != "" && req.ArtistName != "" {
 		GoLog("[ReEnrich] Searching online metadata for: %s - %s\n", req.TrackName, req.ArtistName)
 		searchQuery := req.TrackName + " " + req.ArtistName
@@ -1898,37 +1747,6 @@ func ReEnrichFile(requestJSON string) (string, error) {
 				found = true
 			} else if extErr != nil {
 				GoLog("[ReEnrich] Extension search failed: %v\n", extErr)
-			}
-		}
-
-		// 3) Try Spotify built-in API as last resort (will be deprecated)
-		if !found {
-			GoLog("[ReEnrich] Trying Spotify API (fallback)...\n")
-			spotifyClient, spotifyErr := NewSpotifyMetadataClient()
-			if spotifyErr == nil {
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				results, err := spotifyClient.SearchTracks(ctx, searchQuery, 5)
-				cancel()
-				if err == nil && len(results.Tracks) > 0 {
-					track := results.Tracks[0]
-					GoLog("[ReEnrich] Spotify match: %s - %s (album: %s)\n", track.Name, track.Artists, track.AlbumName)
-					req.SpotifyID = track.SpotifyID
-					req.AlbumName = track.AlbumName
-					req.AlbumArtist = track.AlbumArtist
-					req.TrackNumber = track.TrackNumber
-					req.DiscNumber = track.DiscNumber
-					req.ReleaseDate = track.ReleaseDate
-					req.ISRC = track.ISRC
-					if track.Images != "" {
-						req.CoverURL = track.Images
-					}
-					req.DurationMs = int64(track.DurationMS)
-					found = true
-				} else if err != nil {
-					GoLog("[ReEnrich] Spotify search failed: %v\n", err)
-				}
-			} else {
-				GoLog("[ReEnrich] Spotify client unavailable: %v\n", spotifyErr)
 			}
 		}
 

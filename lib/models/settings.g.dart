@@ -33,7 +33,7 @@ AppSettings _$AppSettingsFromJson(Map<String, dynamic> json) => AppSettings(
   spotifyClientId: json['spotifyClientId'] as String? ?? '',
   spotifyClientSecret: json['spotifyClientSecret'] as String? ?? '',
   useCustomSpotifyCredentials:
-      json['useCustomSpotifyCredentials'] as bool? ?? true,
+      json['useCustomSpotifyCredentials'] as bool? ?? false,
   metadataSource: json['metadataSource'] as String? ?? 'deezer',
   enableLogging: json['enableLogging'] as bool? ?? false,
   useExtensionProviders: json['useExtensionProviders'] as bool? ?? true,

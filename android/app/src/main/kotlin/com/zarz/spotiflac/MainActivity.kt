@@ -1877,38 +1877,6 @@ class MainActivity: FlutterFragmentActivity() {
                             }
                             result.success(response)
                         }
-                        "getSpotifyMetadata" -> {
-                            val url = call.argument<String>("url") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getSpotifyMetadata(url)
-                            }
-                            result.success(response)
-                        }
-                        "searchSpotify" -> {
-                            val query = call.argument<String>("query") ?: ""
-                            val limit = call.argument<Int>("limit") ?: 10
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.searchSpotify(query, limit.toLong())
-                            }
-                            result.success(response)
-                        }
-                        "searchSpotifyAll" -> {
-                            val query = call.argument<String>("query") ?: ""
-                            val trackLimit = call.argument<Int>("track_limit") ?: 15
-                            val artistLimit = call.argument<Int>("artist_limit") ?: 3
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.searchSpotifyAll(query, trackLimit.toLong(), artistLimit.toLong())
-                            }
-                            result.success(response)
-                        }
-                        "getSpotifyRelatedArtists" -> {
-                            val artistId = call.argument<String>("artist_id") ?: ""
-                            val limit = call.argument<Int>("limit") ?: 12
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getSpotifyRelatedArtists(artistId, limit.toLong())
-                            }
-                            result.success(response)
-                        }
                         "checkAvailability" -> {
                             val spotifyId = call.argument<String>("spotify_id") ?: ""
                             val isrc = call.argument<String>("isrc") ?: ""
@@ -2541,20 +2509,6 @@ class MainActivity: FlutterFragmentActivity() {
                         }
                         "isDownloadServiceRunning" -> {
                             result.success(DownloadService.isServiceRunning())
-                        }
-                        "setSpotifyCredentials" -> {
-                            val clientId = call.argument<String>("client_id") ?: ""
-                            val clientSecret = call.argument<String>("client_secret") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setSpotifyAPICredentials(clientId, clientSecret)
-                            }
-                            result.success(null)
-                        }
-                        "hasSpotifyCredentials" -> {
-                            val hasCredentials = withContext(Dispatchers.IO) {
-                                Gobackend.checkSpotifyCredentials()
-                            }
-                            result.success(hasCredentials)
                         }
                         "preWarmTrackCache" -> {
                             val tracksJson = call.argument<String>("tracks") ?: "[]"

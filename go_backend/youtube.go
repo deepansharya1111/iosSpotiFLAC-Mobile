@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 type YouTubeDownloader struct {
@@ -82,7 +81,7 @@ type YouTubeDownloadResult struct {
 func NewYouTubeDownloader() *YouTubeDownloader {
 	youtubeDownloaderOnce.Do(func() {
 		globalYouTubeDownloader = &YouTubeDownloader{
-			client: NewHTTPClientWithTimeout(120 * time.Second),
+			client: NewHTTPClientWithTimeout(DownloadTimeout),
 			apiURL: "https://api.qwkuns.me",
 		}
 	})

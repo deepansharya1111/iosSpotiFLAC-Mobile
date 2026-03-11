@@ -394,11 +394,6 @@ func downloadFromDeezer(req DownloadRequest) (DeezerDownloadResult, error) {
 		}
 	}
 
-	spotifyURL, err := resolveSpotifyURLForYoinkify(req)
-	if err != nil {
-		return DeezerDownloadResult{}, err
-	}
-
 	filename := buildFilenameFromTemplate(req.FilenameFormat, map[string]interface{}{
 		"title":  req.TrackName,
 		"artist": req.ArtistName,
@@ -461,6 +456,17 @@ func downloadFromDeezer(req DownloadRequest) (DeezerDownloadResult, error) {
 	}
 
 	if downloadErr != nil || deezerURLErr != nil {
+		spotifyURL, err := resolveSpotifyURLForYoinkify(req)
+		if err != nil {
+			if deezerURLErr != nil {
+				return DeezerDownloadResult{}, fmt.Errorf(
+					"deezer download failed: direct Deezer resolution error: %v; Yoinkify fallback error: %w",
+					deezerURLErr,
+					err,
+				)
+			}
+			return DeezerDownloadResult{}, err
+		}
 		downloadErr = deezerClient.DownloadFromYoinkify(spotifyURL, outputPath, req.OutputFD, req.ItemID)
 		if downloadErr != nil {
 			if errors.Is(downloadErr, ErrDownloadCancelled) {

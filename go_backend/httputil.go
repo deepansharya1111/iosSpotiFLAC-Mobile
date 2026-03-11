@@ -31,7 +31,7 @@ func getRandomUserAgent() string {
 
 const (
 	DefaultTimeout    = 60 * time.Second
-	DownloadTimeout   = 120 * time.Second
+	DownloadTimeout   = 24 * time.Hour
 	SongLinkTimeout   = 30 * time.Second
 	DefaultMaxRetries = 3
 	DefaultRetryDelay = 1 * time.Second

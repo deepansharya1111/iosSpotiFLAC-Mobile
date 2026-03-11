@@ -133,7 +133,7 @@ class SettingsTab extends ConsumerWidget {
                   SettingsItem(
                     icon: Icons.info_outline,
                     title: l10n.settingsAbout,
-                    subtitle: '${l10n.aboutVersion} ${AppInfo.version}',
+                    subtitle: '${l10n.aboutVersion} ${AppInfo.displayVersion}',
                     onTap: () => _navigateTo(context, const AboutPage()),
                     showDivider: false,
                   ),

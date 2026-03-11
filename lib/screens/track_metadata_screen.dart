@@ -2455,21 +2455,21 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
   }
 
   void _showOptionsMenu(
-    BuildContext context,
+    BuildContext screenContext,
     WidgetRef ref,
     ColorScheme colorScheme,
   ) {
     showModalBottomSheet(
-      context: context,
+      context: screenContext,
       useRootNavigator: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       isScrollControlled: true,
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.7,
+        maxHeight: MediaQuery.of(screenContext).size.height * 0.7,
       ),
-      builder: (context) => SafeArea(
+      builder: (sheetContext) => SafeArea(
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2486,89 +2486,99 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
               const SizedBox(height: 16),
               ListTile(
                 leading: const Icon(Icons.copy),
-                title: Text(context.l10n.trackCopyFilePath),
+                title: Text(sheetContext.l10n.trackCopyFilePath),
                 onTap: () {
-                  Navigator.pop(context);
-                  _copyToClipboard(context, cleanFilePath);
+                  _closeOptionsMenuAndRun(
+                    sheetContext,
+                    () => _copyToClipboard(screenContext, cleanFilePath),
+                  );
                 },
               ),
               if (_fileExists)
                 ListTile(
                   leading: const Icon(Icons.edit_outlined),
-                  title: Text(context.l10n.trackEditMetadata),
+                  title: Text(sheetContext.l10n.trackEditMetadata),
                   onTap: () {
-                    Navigator.pop(context);
-                    _showEditMetadataSheet(context, ref, colorScheme);
+                    _closeOptionsMenuAndRun(
+                      sheetContext,
+                      () =>
+                          _showEditMetadataSheet(screenContext, ref, colorScheme),
+                    );
                   },
                 ),
               if (!_isLocalItem && (_coverUrl != null || _fileExists))
                 ListTile(
                   leading: const Icon(Icons.image_outlined),
-                  title: Text(context.l10n.trackSaveCoverArt),
-                  subtitle: Text(context.l10n.trackSaveCoverArtSubtitle),
+                  title: Text(sheetContext.l10n.trackSaveCoverArt),
+                  subtitle: Text(sheetContext.l10n.trackSaveCoverArtSubtitle),
                   onTap: () {
-                    Navigator.pop(context);
-                    _saveCoverArt();
+                    _closeOptionsMenuAndRun(sheetContext, _saveCoverArt);
                   },
                 ),
               if (!_isLocalItem)
                 ListTile(
                   leading: const Icon(Icons.lyrics_outlined),
-                  title: Text(context.l10n.trackSaveLyrics),
-                  subtitle: Text(context.l10n.trackSaveLyricsSubtitle),
+                  title: Text(sheetContext.l10n.trackSaveLyrics),
+                  subtitle: Text(sheetContext.l10n.trackSaveLyricsSubtitle),
                   onTap: () {
-                    Navigator.pop(context);
-                    _saveLyrics();
+                    _closeOptionsMenuAndRun(sheetContext, _saveLyrics);
                   },
                 ),
               if (_fileExists)
                 ListTile(
                   leading: const Icon(Icons.travel_explore),
-                  title: Text(context.l10n.trackReEnrich),
-                  subtitle: Text(context.l10n.trackReEnrichOnlineSubtitle),
+                  title: Text(sheetContext.l10n.trackReEnrich),
+                  subtitle: Text(sheetContext.l10n.trackReEnrichOnlineSubtitle),
                   onTap: () {
-                    Navigator.pop(context);
-                    _reEnrichMetadata();
+                    _closeOptionsMenuAndRun(sheetContext, _reEnrichMetadata);
                   },
                 ),
               if (_fileExists && _isConvertibleFormat)
                 ListTile(
                   leading: const Icon(Icons.swap_horiz),
-                  title: Text(context.l10n.trackConvertFormat),
-                  subtitle: Text(context.l10n.trackConvertFormatSubtitle),
+                  title: Text(sheetContext.l10n.trackConvertFormat),
+                  subtitle: Text(sheetContext.l10n.trackConvertFormatSubtitle),
                   onTap: () {
-                    Navigator.pop(context);
-                    _showConvertSheet(context);
+                    _closeOptionsMenuAndRun(
+                      sheetContext,
+                      () => _showConvertSheet(screenContext),
+                    );
                   },
                 ),
               if (_fileExists && _isCueFile)
                 ListTile(
                   leading: const Icon(Icons.call_split),
-                  title: Text(context.l10n.cueSplitTitle),
-                  subtitle: Text(context.l10n.cueSplitSubtitle),
+                  title: Text(sheetContext.l10n.cueSplitTitle),
+                  subtitle: Text(sheetContext.l10n.cueSplitSubtitle),
                   onTap: () {
-                    Navigator.pop(context);
-                    _showCueSplitSheet(context);
+                    _closeOptionsMenuAndRun(
+                      sheetContext,
+                      () => _showCueSplitSheet(screenContext),
+                    );
                   },
                 ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.share),
-                title: Text(context.l10n.trackMetadataShare),
+                title: Text(sheetContext.l10n.trackMetadataShare),
                 onTap: () {
-                  Navigator.pop(context);
-                  _shareFile(context);
+                  _closeOptionsMenuAndRun(
+                    sheetContext,
+                    () => _shareFile(screenContext),
+                  );
                 },
               ),
               ListTile(
                 leading: Icon(Icons.delete, color: colorScheme.error),
                 title: Text(
-                  context.l10n.trackRemoveFromDevice,
+                  sheetContext.l10n.trackRemoveFromDevice,
                   style: TextStyle(color: colorScheme.error),
                 ),
                 onTap: () {
-                  Navigator.pop(context);
-                  _confirmDelete(context, ref, colorScheme);
+                  _closeOptionsMenuAndRun(
+                    sheetContext,
+                    () => _confirmDelete(screenContext, ref, colorScheme),
+                  );
                 },
               ),
               const SizedBox(height: 16),
@@ -3650,20 +3660,20 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
   }
 
   void _confirmDelete(
-    BuildContext context,
+    BuildContext screenContext,
     WidgetRef ref,
     ColorScheme colorScheme,
   ) {
     showDialog(
-      context: context,
-      useRootNavigator: false,
-      builder: (context) => AlertDialog(
-        title: Text(context.l10n.trackDeleteConfirmTitle),
-        content: Text(context.l10n.trackDeleteConfirmMessage),
+      context: screenContext,
+      useRootNavigator: true,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(dialogContext.l10n.trackDeleteConfirmTitle),
+        content: Text(dialogContext.l10n.trackDeleteConfirmMessage),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(context.l10n.dialogCancel),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(dialogContext.l10n.dialogCancel),
           ),
           TextButton(
             onPressed: () async {
@@ -3691,19 +3701,36 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
                     .removeFromHistory(_downloadItem!.id);
               }
 
-              if (context.mounted) {
-                Navigator.pop(context);
-                Navigator.pop(context);
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext);
               }
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                final navigator = Navigator.of(context);
+                if (navigator.canPop()) {
+                  navigator.pop(true);
+                }
+              });
             },
             child: Text(
-              context.l10n.dialogDelete,
+              dialogContext.l10n.dialogDelete,
               style: TextStyle(color: colorScheme.error),
             ),
           ),
         ],
       ),
     );
+  }
+
+  void _closeOptionsMenuAndRun(
+    BuildContext sheetContext,
+    VoidCallback action,
+  ) {
+    Navigator.pop(sheetContext);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      action();
+    });
   }
 
   Future<void> _openFile(BuildContext context, String filePath) async {

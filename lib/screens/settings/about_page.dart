@@ -234,7 +234,7 @@ class AboutPage extends StatelessWidget {
                     icon: Icons.info_outline,
                     title: context.l10n.aboutVersion,
                     subtitle:
-                        'v${AppInfo.version} (build ${AppInfo.buildNumber})',
+                        'v${AppInfo.displayVersion} (build ${AppInfo.buildNumber})',
                     showDivider: false,
                   ),
                 ],
@@ -341,7 +341,7 @@ class _AppHeaderCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  'v${AppInfo.version}',
+                  'v${AppInfo.displayVersion}',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
                     color: colorScheme.onSecondaryContainer,
                     fontWeight: FontWeight.w600,

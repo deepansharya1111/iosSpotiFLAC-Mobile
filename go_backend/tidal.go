@@ -583,7 +583,7 @@ func (t *TidalDownloader) downloadFromManifest(ctx context.Context, manifestB64,
 	GoLog("[Tidal] Manifest parsed - directURL: %v, initURL: %v, mediaURLs count: %d\n",
 		directURL != "", initURL != "", len(mediaURLs))
 
-	client := NewHTTPClientWithTimeout(120 * time.Second)
+	client := NewHTTPClientWithTimeout(DownloadTimeout)
 
 	if directURL != "" {
 		GoLog("[Tidal] BTS format - downloading from direct URL: %s...\n", directURL[:min(80, len(directURL))])

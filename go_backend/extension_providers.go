@@ -484,7 +484,7 @@ func (p *ExtensionProviderWrapper) GetDownloadURL(trackID, quality string) (*Ext
 	return &urlResult, nil
 }
 
-const ExtDownloadTimeout = 5 * time.Minute
+const ExtDownloadTimeout = DownloadTimeout
 
 func (p *ExtensionProviderWrapper) Download(trackID, quality, outputPath string, onProgress func(percent int)) (*ExtDownloadResult, error) {
 	if !p.extension.Manifest.IsDownloadProvider() {

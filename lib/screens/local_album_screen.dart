@@ -1129,9 +1129,56 @@ class _LocalAlbumScreenState extends ConsumerState<LocalAlbumScreen> {
     BuildContext context,
     List<LocalLibraryItem> allTracks,
   ) {
-    String selectedFormat = 'MP3';
-    String selectedBitrate = '320k';
-    bool isLosslessTarget = false;
+    final tracksById = {for (final t in allTracks) t.id: t};
+    final sourceFormats = <String>{};
+    for (final id in _selectedIds) {
+      final item = tracksById[id];
+      if (item == null) continue;
+      String? ext;
+      if (item.format != null && item.format!.isNotEmpty) {
+        final fmt = item.format!.toLowerCase();
+        if (fmt == 'flac') {
+          ext = 'FLAC';
+        } else if (fmt == 'm4a') {
+          ext = 'M4A';
+        } else if (fmt == 'mp3') {
+          ext = 'MP3';
+        } else if (fmt == 'opus' || fmt == 'ogg') {
+          ext = 'Opus';
+        }
+      }
+      if (ext == null) {
+        final lower = item.filePath.toLowerCase();
+        if (lower.endsWith('.flac')) {
+          ext = 'FLAC';
+        } else if (lower.endsWith('.m4a')) {
+          ext = 'M4A';
+        } else if (lower.endsWith('.mp3')) {
+          ext = 'MP3';
+        } else if (lower.endsWith('.opus') || lower.endsWith('.ogg')) {
+          ext = 'Opus';
+        }
+      }
+      if (ext != null) sourceFormats.add(ext);
+    }
+
+    final formats = ['ALAC', 'FLAC', 'MP3', 'Opus'].where((target) {
+      return sourceFormats.any((src) {
+        if (src == target) return false;
+        final isLosslessTarget = target == 'ALAC' || target == 'FLAC';
+        final isLosslessSource = src == 'FLAC' || src == 'M4A';
+        if (isLosslessTarget && !isLosslessSource) return false;
+        return true;
+      });
+    }).toList();
+
+    if (formats.isEmpty) return;
+
+    String selectedFormat = formats.first;
+    bool isLosslessTarget =
+        selectedFormat == 'ALAC' || selectedFormat == 'FLAC';
+    String selectedBitrate =
+        isLosslessTarget ? '320k' : (selectedFormat == 'Opus' ? '128k' : '320k');
 
     showModalBottomSheet(
       context: context,
@@ -1143,7 +1190,6 @@ class _LocalAlbumScreenState extends ConsumerState<LocalAlbumScreen> {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             final colorScheme = Theme.of(context).colorScheme;
-            final formats = ['ALAC', 'FLAC', 'MP3', 'Opus'];
             final bitrates = ['128k', '192k', '256k', '320k'];
 
             return SafeArea(

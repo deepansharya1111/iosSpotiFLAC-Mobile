@@ -1377,12 +1377,7 @@ class FFmpegService {
     return outputPath;
   }
 
-  /// Convert any audio format to FLAC.
-  /// Source metadata is preserved via -map_metadata 0 (FFmpeg auto-remaps
-  /// tag names between container formats), then explicit Vorbis comment
-  /// overrides are applied from the [metadata] map.
-  /// Cover art is embedded via a second input stream (same approach as
-  /// [embedMetadata] and [_convertToAlac]).
+  /// Convert any audio format to FLAC with metadata and cover art preservation.
   static Future<String?> _convertToFlac({
     required String inputPath,
     required Map<String, String> metadata,
@@ -1394,7 +1389,6 @@ class FFmpegService {
     final cmdBuffer = StringBuffer();
     cmdBuffer.write('-i "$inputPath" ');
 
-    // Cover art as second input for attached picture
     final hasCover = coverPath != null &&
         coverPath.trim().isNotEmpty &&
         await File(coverPath).exists();
@@ -1409,12 +1403,8 @@ class FFmpegService {
       cmdBuffer.write('-metadata:s:v comment="Cover (front)" ');
     }
     cmdBuffer.write('-c:a flac -compression_level 8 ');
-
-    // Copy source metadata as base (FFmpeg auto-remaps M4A/ID3 tags to
-    // Vorbis comment names), then override with our explicit values.
     cmdBuffer.write('-map_metadata 0 ');
 
-    // Apply normalized Vorbis comment overrides
     final vorbisComments = _normalizeToVorbisComments(metadata);
     for (final entry in vorbisComments.entries) {
       final sanitized = entry.value.replaceAll('"', '\\"');
@@ -1447,8 +1437,8 @@ class FFmpegService {
     return outputPath;
   }
 
-  /// Normalize metadata keys to standard Vorbis comment names and filter out
-  /// technical/non-tag fields (bit_depth, sample_rate, duration, etc.).
+  /// Normalize metadata keys to standard Vorbis comment names, filtering out
+  /// technical fields (bit_depth, sample_rate, duration, etc.).
   static Map<String, String> _normalizeToVorbisComments(
     Map<String, String> metadata,
   ) {
@@ -1508,12 +1498,9 @@ class FFmpegService {
           break;
         case 'LYRICS':
         case 'UNSYNCEDLYRICS':
-          // Write both keys for compatibility with different FLAC readers
           vorbis['LYRICS'] = value;
           vorbis['UNSYNCEDLYRICS'] = value;
           break;
-        // Technical fields (BIT_DEPTH, SAMPLE_RATE, DURATION, etc.) are
-        // intentionally dropped — they are not Vorbis comment tags.
       }
     }
 

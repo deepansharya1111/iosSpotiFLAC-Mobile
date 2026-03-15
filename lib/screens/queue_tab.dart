@@ -4755,9 +4755,50 @@ class _QueueTabState extends ConsumerState<QueueTab> {
     BuildContext context,
     List<UnifiedLibraryItem> allItems,
   ) async {
-    String selectedFormat = 'MP3';
-    String selectedBitrate = '320k';
-    bool isLosslessTarget = false;
+    final itemsById = {for (final item in allItems) item.id: item};
+    final sourceFormats = <String>{};
+    for (final id in _selectedIds) {
+      final item = itemsById[id];
+      if (item == null) continue;
+      String nameToCheck;
+      if (item.historyItem?.safFileName != null &&
+          item.historyItem!.safFileName!.isNotEmpty) {
+        nameToCheck = item.historyItem!.safFileName!.toLowerCase();
+      } else if (item.localItem?.format != null &&
+          item.localItem!.format!.isNotEmpty) {
+        nameToCheck = '.${item.localItem!.format!.toLowerCase()}';
+      } else {
+        nameToCheck = item.filePath.toLowerCase();
+      }
+      final ext = nameToCheck.endsWith('.flac')
+          ? 'FLAC'
+          : nameToCheck.endsWith('.m4a')
+          ? 'M4A'
+          : nameToCheck.endsWith('.mp3')
+          ? 'MP3'
+          : (nameToCheck.endsWith('.opus') || nameToCheck.endsWith('.ogg'))
+          ? 'Opus'
+          : null;
+      if (ext != null) sourceFormats.add(ext);
+    }
+
+    final formats = ['ALAC', 'FLAC', 'MP3', 'Opus'].where((target) {
+      return sourceFormats.any((src) {
+        if (src == target) return false;
+        final isLosslessTarget = target == 'ALAC' || target == 'FLAC';
+        final isLosslessSource = src == 'FLAC' || src == 'M4A';
+        if (isLosslessTarget && !isLosslessSource) return false;
+        return true;
+      });
+    }).toList();
+
+    if (formats.isEmpty) return;
+
+    String selectedFormat = formats.first;
+    bool isLosslessTarget =
+        selectedFormat == 'ALAC' || selectedFormat == 'FLAC';
+    String selectedBitrate =
+        isLosslessTarget ? '320k' : (selectedFormat == 'Opus' ? '128k' : '320k');
     var didStartConversion = false;
 
     _hideSelectionOverlay();
@@ -4773,7 +4814,6 @@ class _QueueTabState extends ConsumerState<QueueTab> {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             final colorScheme = Theme.of(context).colorScheme;
-            final formats = ['ALAC', 'FLAC', 'MP3', 'Opus'];
             final bitrates = ['128k', '192k', '256k', '320k'];
 
             return SafeArea(

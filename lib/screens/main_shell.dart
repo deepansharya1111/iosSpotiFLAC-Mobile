@@ -261,7 +261,6 @@ class _MainShellState extends ConsumerState<MainShell>
     if (_currentIndex != index) {
       final previousIndex = _currentIndex;
       final isNonAdjacentJump = (previousIndex - index).abs() > 1;
-      final shouldResetHome = index == 0;
       HapticFeedback.selectionClick();
       setState(() => _currentIndex = index);
       final showStore = ref.read(
@@ -272,9 +271,6 @@ class _MainShellState extends ConsumerState<MainShell>
         showStoreTab: showStore,
       );
       FocusManager.instance.primaryFocus?.unfocus();
-      if (shouldResetHome) {
-        _resetHomeToMain();
-      }
       // Jump directly when skipping intermediate tabs to avoid
       // sliding through them. For those jumps, keep a short fade-in
       // so the transition still feels intentional.
@@ -292,7 +288,6 @@ class _MainShellState extends ConsumerState<MainShell>
   }
 
   void _onPageChanged(int index) {
-    final previousIndex = _currentIndex;
     if (_currentIndex != index) {
       setState(() => _currentIndex = index);
       final showStore = ref.read(
@@ -303,9 +298,6 @@ class _MainShellState extends ConsumerState<MainShell>
         showStoreTab: showStore,
       );
       FocusManager.instance.primaryFocus?.unfocus();
-      if (index == 0 && previousIndex != 0) {
-        _resetHomeToMain();
-      }
     }
   }
 

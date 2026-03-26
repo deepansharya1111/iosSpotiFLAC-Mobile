@@ -150,14 +150,12 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
           _data = cached;
           _checkingCache = false;
         });
-        if (cached.spectrum != null && cached.spectrum!.sliceCount > 0) {
-          final image = await _renderSpectrogramToImage(cached.spectrum!);
-          if (mounted) {
-            setState(() {
-              _spectrogramImage?.dispose();
-              _spectrogramImage = image;
-            });
-          }
+        final image = await _loadSpectrogramFromCache(widget.filePath);
+        if (image != null && mounted) {
+          setState(() {
+            _spectrogramImage?.dispose();
+            _spectrogramImage = image;
+          });
         }
         return;
       }
@@ -177,17 +175,25 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
     try {
       final cached = await _loadFromCache(widget.filePath);
       AudioAnalysisData data;
+      bool fromCache = false;
 
       if (cached != null) {
         data = cached;
+        fromCache = true;
       } else {
         data = await _runAnalysis(widget.filePath);
         _saveToCache(widget.filePath, data);
       }
 
       ui.Image? image;
-      if (data.spectrum != null && data.spectrum!.sliceCount > 0) {
+      if (fromCache) {
+        image = await _loadSpectrogramFromCache(widget.filePath);
+      }
+      if (image == null &&
+          data.spectrum != null &&
+          data.spectrum!.sliceCount > 0) {
         image = await _renderSpectrogramToImage(data.spectrum!);
+        _saveSpectrogramToCache(widget.filePath, image);
       }
 
       if (mounted) {
@@ -257,6 +263,37 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
       final file = File('${dir.path}/$key.json');
       await file.writeAsString(jsonEncode(data.toJson()));
     } catch (_) {}
+  }
+
+  static Future<void> _saveSpectrogramToCache(
+    String filePath,
+    ui.Image image,
+  ) async {
+    try {
+      final dir = await _cacheDir();
+      final key = _cacheKey(filePath);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData != null) {
+        final file = File('${dir.path}/$key.png');
+        await file.writeAsBytes(byteData.buffer.asUint8List());
+      }
+    } catch (_) {}
+  }
+
+  static Future<ui.Image?> _loadSpectrogramFromCache(String filePath) async {
+    try {
+      final dir = await _cacheDir();
+      final key = _cacheKey(filePath);
+      final file = File('${dir.path}/$key.png');
+      if (!await file.exists()) return null;
+
+      final bytes = await file.readAsBytes();
+      final completer = Completer<ui.Image>();
+      ui.decodeImageFromList(bytes, completer.complete);
+      return completer.future;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<AudioAnalysisData> _runAnalysis(String filePath) async {

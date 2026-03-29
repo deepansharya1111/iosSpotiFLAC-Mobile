@@ -13,6 +13,7 @@ import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/utils/file_access.dart';
 import 'package:spotiflac_android/utils/lyrics_metadata_helper.dart';
 import 'package:spotiflac_android/providers/download_queue_provider.dart';
+import 'package:spotiflac_android/widgets/batch_progress_dialog.dart';
 import 'package:spotiflac_android/providers/playback_provider.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/screens/track_metadata_screen.dart';
@@ -1164,19 +1165,23 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen> {
     final shouldEmbedLyrics =
         settings.embedLyrics && settings.lyricsMode != 'external';
 
+    var cancelled = false;
+    BatchProgressDialog.show(
+      context: context,
+      title: context.l10n.trackConvertConverting,
+      total: total,
+      icon: Icons.transform,
+      onCancel: () {
+        cancelled = true;
+        BatchProgressDialog.dismiss(context);
+      },
+    );
+
     for (int i = 0; i < total; i++) {
-      if (!mounted) break;
+      if (!mounted || cancelled) break;
       final item = selected[i];
 
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            context.l10n.selectionBatchConvertProgress(i + 1, total),
-          ),
-          duration: const Duration(seconds: 30),
-        ),
-      );
+      BatchProgressDialog.update(current: i + 1, detail: item.trackName);
 
       try {
         final metadata = <String, String>{
@@ -1335,6 +1340,9 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen> {
     _exitSelectionMode();
 
     if (mounted) {
+      if (!cancelled) {
+        BatchProgressDialog.dismiss(context);
+      }
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

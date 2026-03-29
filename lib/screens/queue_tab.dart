@@ -28,6 +28,7 @@ import 'package:spotiflac_android/services/history_database.dart';
 import 'package:spotiflac_android/services/downloaded_embedded_cover_resolver.dart';
 import 'package:spotiflac_android/screens/track_metadata_screen.dart';
 import 'package:spotiflac_android/screens/downloaded_album_screen.dart';
+import 'package:spotiflac_android/widgets/batch_progress_dialog.dart';
 import 'package:spotiflac_android/screens/library_tracks_folder_screen.dart';
 import 'package:spotiflac_android/screens/local_album_screen.dart';
 import 'package:spotiflac_android/utils/clickable_metadata.dart';
@@ -4463,15 +4464,24 @@ class _QueueTabState extends ConsumerState<QueueTab> {
     var skippedCount = 0;
     final total = selectedLocalItems.length;
 
-    for (var i = 0; i < total; i++) {
-      if (!mounted) break;
+    var cancelled = false;
+    BatchProgressDialog.show(
+      context: context,
+      title: context.l10n.queueFlacAction,
+      total: total,
+      icon: Icons.queue_music,
+      onCancel: () {
+        cancelled = true;
+        BatchProgressDialog.dismiss(context);
+      },
+    );
 
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(context.l10n.queueFlacFindingProgress(i + 1, total)),
-          duration: const Duration(seconds: 30),
-        ),
+    for (var i = 0; i < total; i++) {
+      if (!mounted || cancelled) break;
+
+      BatchProgressDialog.update(
+        current: i + 1,
+        detail: selectedLocalItems[i].trackName,
       );
 
       try {
@@ -4493,7 +4503,9 @@ class _QueueTabState extends ConsumerState<QueueTab> {
       return;
     }
 
-    ScaffoldMessenger.of(context).clearSnackBars();
+    if (!cancelled) {
+      BatchProgressDialog.dismiss(context);
+    }
 
     if (matchedTracks.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -4567,18 +4579,25 @@ class _QueueTabState extends ConsumerState<QueueTab> {
     var successCount = 0;
     final total = selectedLocalItems.length;
 
+    var cancelled = false;
+    BatchProgressDialog.show(
+      context: context,
+      title: context.l10n.trackReEnrichProgress,
+      total: total,
+      icon: Icons.auto_fix_high,
+      onCancel: () {
+        cancelled = true;
+        BatchProgressDialog.dismiss(context);
+      },
+    );
+
     for (var i = 0; i < total; i++) {
-      if (!mounted) break;
+      if (!mounted || cancelled) break;
       final item = selectedLocalItems[i];
 
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${context.l10n.trackReEnrichProgress} (${i + 1}/$total)',
-          ),
-          duration: const Duration(seconds: 30),
-        ),
+      BatchProgressDialog.update(
+        current: i + 1,
+        detail: '${item.trackName} - ${item.artistName}',
       );
 
       try {
@@ -4618,6 +4637,9 @@ class _QueueTabState extends ConsumerState<QueueTab> {
       return;
     }
 
+    if (!cancelled) {
+      BatchProgressDialog.dismiss(context);
+    }
     ScaffoldMessenger.of(context).clearSnackBars();
     final failedCount = total - successCount;
     final summary = failedCount <= 0
@@ -4978,19 +5000,23 @@ class _QueueTabState extends ConsumerState<QueueTab> {
     final shouldEmbedLyrics =
         settings.embedLyrics && settings.lyricsMode != 'external';
 
+    var cancelled = false;
+    BatchProgressDialog.show(
+      context: context,
+      title: context.l10n.trackConvertConverting,
+      total: total,
+      icon: Icons.transform,
+      onCancel: () {
+        cancelled = true;
+        BatchProgressDialog.dismiss(context);
+      },
+    );
+
     for (int i = 0; i < total; i++) {
-      if (!mounted) break;
+      if (!mounted || cancelled) break;
       final item = selectedItems[i];
 
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            context.l10n.selectionBatchConvertProgress(i + 1, total),
-          ),
-          duration: const Duration(seconds: 30),
-        ),
-      );
+      BatchProgressDialog.update(current: i + 1, detail: item.trackName);
 
       try {
         final metadata = <String, String>{
@@ -5244,6 +5270,9 @@ class _QueueTabState extends ConsumerState<QueueTab> {
     _exitSelectionMode();
 
     if (mounted) {
+      if (!cancelled) {
+        BatchProgressDialog.dismiss(context);
+      }
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

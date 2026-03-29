@@ -13,6 +13,7 @@ import 'package:spotiflac_android/utils/lyrics_metadata_helper.dart';
 import 'package:spotiflac_android/services/library_database.dart';
 import 'package:spotiflac_android/services/ffmpeg_service.dart';
 import 'package:spotiflac_android/services/local_track_redownload_service.dart';
+import 'package:spotiflac_android/widgets/batch_progress_dialog.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
 import 'package:spotiflac_android/providers/local_library_provider.dart';
 import 'package:spotiflac_android/providers/playback_provider.dart';
@@ -957,16 +958,22 @@ class _LocalAlbumScreenState extends ConsumerState<LocalAlbumScreen> {
     var skippedCount = 0;
     final total = selected.length;
 
-    for (var i = 0; i < total; i++) {
-      if (!mounted) break;
+    var cancelled = false;
+    BatchProgressDialog.show(
+      context: context,
+      title: context.l10n.queueFlacAction,
+      total: total,
+      icon: Icons.queue_music,
+      onCancel: () {
+        cancelled = true;
+        BatchProgressDialog.dismiss(context);
+      },
+    );
 
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(context.l10n.queueFlacFindingProgress(i + 1, total)),
-          duration: const Duration(seconds: 30),
-        ),
-      );
+    for (var i = 0; i < total; i++) {
+      if (!mounted || cancelled) break;
+
+      BatchProgressDialog.update(current: i + 1, detail: selected[i].trackName);
 
       try {
         final resolution = await LocalTrackRedownloadService.resolveBestMatch(
@@ -987,7 +994,9 @@ class _LocalAlbumScreenState extends ConsumerState<LocalAlbumScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).clearSnackBars();
+    if (!cancelled) {
+      BatchProgressDialog.dismiss(context);
+    }
 
     if (matchedTracks.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1063,18 +1072,25 @@ class _LocalAlbumScreenState extends ConsumerState<LocalAlbumScreen> {
     var successCount = 0;
     final total = selected.length;
 
+    var cancelled = false;
+    BatchProgressDialog.show(
+      context: context,
+      title: context.l10n.trackReEnrichProgress,
+      total: total,
+      icon: Icons.auto_fix_high,
+      onCancel: () {
+        cancelled = true;
+        BatchProgressDialog.dismiss(context);
+      },
+    );
+
     for (var i = 0; i < total; i++) {
-      if (!mounted) break;
+      if (!mounted || cancelled) break;
       final item = selected[i];
 
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${context.l10n.trackReEnrichProgress} (${i + 1}/$total)',
-          ),
-          duration: const Duration(seconds: 30),
-        ),
+      BatchProgressDialog.update(
+        current: i + 1,
+        detail: '${item.trackName} - ${item.artistName}',
       );
 
       try {
@@ -1114,6 +1130,9 @@ class _LocalAlbumScreenState extends ConsumerState<LocalAlbumScreen> {
       return;
     }
 
+    if (!cancelled) {
+      BatchProgressDialog.dismiss(context);
+    }
     ScaffoldMessenger.of(context).clearSnackBars();
     final failedCount = total - successCount;
     final summary = failedCount <= 0
@@ -1422,19 +1441,23 @@ class _LocalAlbumScreenState extends ConsumerState<LocalAlbumScreen> {
     final shouldEmbedLyrics =
         settings.embedLyrics && settings.lyricsMode != 'external';
 
+    var cancelled = false;
+    BatchProgressDialog.show(
+      context: context,
+      title: context.l10n.trackConvertConverting,
+      total: total,
+      icon: Icons.transform,
+      onCancel: () {
+        cancelled = true;
+        BatchProgressDialog.dismiss(context);
+      },
+    );
+
     for (int i = 0; i < total; i++) {
-      if (!mounted) break;
+      if (!mounted || cancelled) break;
       final item = selected[i];
 
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            context.l10n.selectionBatchConvertProgress(i + 1, total),
-          ),
-          duration: const Duration(seconds: 30),
-        ),
-      );
+      BatchProgressDialog.update(current: i + 1, detail: item.trackName);
 
       try {
         final metadata = <String, String>{
@@ -1621,6 +1644,9 @@ class _LocalAlbumScreenState extends ConsumerState<LocalAlbumScreen> {
     _exitSelectionMode();
 
     if (mounted) {
+      if (!cancelled) {
+        BatchProgressDialog.dismiss(context);
+      }
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

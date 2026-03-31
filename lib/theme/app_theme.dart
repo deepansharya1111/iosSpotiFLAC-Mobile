@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:spotiflac_android/models/theme_settings.dart';
 
 class AppTheme {
@@ -84,6 +85,20 @@ class AppTheme {
       color: scheme.onSurface,
       fontSize: 22,
       fontWeight: FontWeight.w500,
+    ),
+    systemOverlayStyle: SystemUiOverlayStyle(
+      // Status bar
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: scheme.brightness == Brightness.dark
+          ? Brightness.light
+          : Brightness.dark,
+      // System navigation bar — match the in-app NavigationBar color
+      systemNavigationBarColor: isAmoled
+          ? Colors.black
+          : scheme.surfaceContainer,
+      systemNavigationBarIconBrightness: scheme.brightness == Brightness.dark
+          ? Brightness.light
+          : Brightness.dark,
     ),
   );
 

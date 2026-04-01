@@ -999,6 +999,9 @@ func ReadFileMetadata(filePath string) (string, error) {
 	isM4A := strings.HasSuffix(lower, ".m4a") || strings.HasSuffix(lower, ".aac")
 	isMp3 := strings.HasSuffix(lower, ".mp3")
 	isOgg := strings.HasSuffix(lower, ".opus") || strings.HasSuffix(lower, ".ogg")
+	isApe := strings.HasSuffix(lower, ".ape")
+	isWv := strings.HasSuffix(lower, ".wv")
+	isMpc := strings.HasSuffix(lower, ".mpc")
 
 	result := map[string]interface{}{
 		"title":        "",
@@ -1064,6 +1067,11 @@ func ReadFileMetadata(filePath string) (string, error) {
 			result["copyright"] = metadata.Copyright
 			result["composer"] = metadata.Composer
 			result["comment"] = metadata.Comment
+			// ReplayGain fields
+			result["replaygain_track_gain"] = metadata.ReplayGainTrackGain
+			result["replaygain_track_peak"] = metadata.ReplayGainTrackPeak
+			result["replaygain_album_gain"] = metadata.ReplayGainAlbumGain
+			result["replaygain_album_peak"] = metadata.ReplayGainAlbumPeak
 
 			quality, qualityErr := GetAudioQuality(filePath)
 			if qualityErr == nil {
@@ -1094,6 +1102,10 @@ func ReadFileMetadata(filePath string) (string, error) {
 			result["copyright"] = meta.Copyright
 			result["composer"] = meta.Composer
 			result["comment"] = meta.Comment
+			result["replaygain_track_gain"] = meta.ReplayGainTrackGain
+			result["replaygain_track_peak"] = meta.ReplayGainTrackPeak
+			result["replaygain_album_gain"] = meta.ReplayGainAlbumGain
+			result["replaygain_album_peak"] = meta.ReplayGainAlbumPeak
 		}
 		quality, qualityErr := GetM4AQuality(filePath)
 		if qualityErr == nil {
@@ -1116,8 +1128,14 @@ func ReadFileMetadata(filePath string) (string, error) {
 			result["isrc"] = meta.ISRC
 			result["lyrics"] = meta.Lyrics
 			result["genre"] = meta.Genre
+			result["label"] = meta.Label
+			result["copyright"] = meta.Copyright
 			result["composer"] = meta.Composer
 			result["comment"] = meta.Comment
+			result["replaygain_track_gain"] = meta.ReplayGainTrackGain
+			result["replaygain_track_peak"] = meta.ReplayGainTrackPeak
+			result["replaygain_album_gain"] = meta.ReplayGainAlbumGain
+			result["replaygain_album_peak"] = meta.ReplayGainAlbumPeak
 		}
 		quality, qualityErr := GetMP3Quality(filePath)
 		if qualityErr == nil {
@@ -1141,13 +1159,48 @@ func ReadFileMetadata(filePath string) (string, error) {
 			result["isrc"] = meta.ISRC
 			result["lyrics"] = meta.Lyrics
 			result["genre"] = meta.Genre
+			result["label"] = meta.Label
+			result["copyright"] = meta.Copyright
 			result["composer"] = meta.Composer
 			result["comment"] = meta.Comment
+			result["replaygain_track_gain"] = meta.ReplayGainTrackGain
+			result["replaygain_track_peak"] = meta.ReplayGainTrackPeak
+			result["replaygain_album_gain"] = meta.ReplayGainAlbumGain
+			result["replaygain_album_peak"] = meta.ReplayGainAlbumPeak
 		}
 		quality, qualityErr := GetOggQuality(filePath)
 		if qualityErr == nil {
 			result["sample_rate"] = quality.SampleRate
 			result["duration"] = quality.Duration
+		}
+	} else if isApe || isWv || isMpc {
+		// APE, WavPack, Musepack: read APEv2 tags
+		apeTag, apeErr := ReadAPETags(filePath)
+		if apeErr == nil && apeTag != nil {
+			meta := APETagToAudioMetadata(apeTag)
+			if meta != nil {
+				result["title"] = meta.Title
+				result["artist"] = meta.Artist
+				result["album"] = meta.Album
+				result["album_artist"] = meta.AlbumArtist
+				result["date"] = meta.Date
+				if meta.Date == "" {
+					result["date"] = meta.Year
+				}
+				result["track_number"] = meta.TrackNumber
+				result["disc_number"] = meta.DiscNumber
+				result["isrc"] = meta.ISRC
+				result["lyrics"] = meta.Lyrics
+				result["genre"] = meta.Genre
+				result["label"] = meta.Label
+				result["copyright"] = meta.Copyright
+				result["composer"] = meta.Composer
+				result["comment"] = meta.Comment
+				result["replaygain_track_gain"] = meta.ReplayGainTrackGain
+				result["replaygain_track_peak"] = meta.ReplayGainTrackPeak
+				result["replaygain_album_gain"] = meta.ReplayGainAlbumGain
+				result["replaygain_album_peak"] = meta.ReplayGainAlbumPeak
+			}
 		}
 	} else {
 		return "", fmt.Errorf("unsupported file format: %s", filePath)
@@ -1218,9 +1271,24 @@ func EditFileMetadata(filePath, metadataJSON string) (string, error) {
 
 	lower := strings.ToLower(filePath)
 	isFlac := strings.HasSuffix(lower, ".flac")
+	isApeFile := strings.HasSuffix(lower, ".ape") || strings.HasSuffix(lower, ".wv") || strings.HasSuffix(lower, ".mpc")
 	coverPath := strings.TrimSpace(fields["cover_path"])
 
 	if isFlac {
+		if err := EditFlacFields(filePath, fields); err != nil {
+			return "", fmt.Errorf("failed to write FLAC metadata: %w", err)
+		}
+
+		resp := map[string]any{
+			"success": true,
+			"method":  "native",
+		}
+		jsonBytes, _ := json.Marshal(resp)
+		return string(jsonBytes), nil
+	}
+
+	// APE/WV/MPC: write APEv2 tags natively
+	if isApeFile {
 		trackNum := 0
 		discNum := 0
 		if v, ok := fields["track_number"]; ok && v != "" {
@@ -1230,30 +1298,77 @@ func EditFileMetadata(filePath, metadataJSON string) (string, error) {
 			fmt.Sscanf(v, "%d", &discNum)
 		}
 
-		meta := Metadata{
-			Title:         fields["title"],
-			Artist:        fields["artist"],
-			Album:         fields["album"],
-			AlbumArtist:   fields["album_artist"],
-			ArtistTagMode: fields["artist_tag_mode"],
-			Date:          fields["date"],
-			TrackNumber:   trackNum,
-			DiscNumber:    discNum,
-			ISRC:          fields["isrc"],
-			Genre:         fields["genre"],
-			Label:         fields["label"],
-			Copyright:     fields["copyright"],
-			Composer:      fields["composer"],
-			Comment:       fields["comment"],
+		meta := &AudioMetadata{
+			Title:       fields["title"],
+			Artist:      fields["artist"],
+			Album:       fields["album"],
+			AlbumArtist: fields["album_artist"],
+			Date:        fields["date"],
+			TrackNumber: trackNum,
+			DiscNumber:  discNum,
+			ISRC:        fields["isrc"],
+			Genre:       fields["genre"],
+			Label:       fields["label"],
+			Copyright:   fields["copyright"],
+			Composer:    fields["composer"],
+			Comment:     fields["comment"],
+			// ReplayGain fields
+			ReplayGainTrackGain: fields["replaygain_track_gain"],
+			ReplayGainTrackPeak: fields["replaygain_track_peak"],
+			ReplayGainAlbumGain: fields["replaygain_album_gain"],
+			ReplayGainAlbumPeak: fields["replaygain_album_peak"],
 		}
 
-		if err := EmbedMetadata(filePath, meta, coverPath); err != nil {
-			return "", fmt.Errorf("failed to write FLAC metadata: %w", err)
+		newItems := AudioMetadataToAPEItems(meta)
+
+		// If a cover image was provided, embed it as a binary APE item.
+		// APEv2 cover format: "cover.jpg\0<binary image data>", flagged binary.
+		if coverPath != "" {
+			coverData, coverErr := os.ReadFile(coverPath)
+			if coverErr == nil && len(coverData) > 0 {
+				// The value is "filename\0" + raw bytes.  We store the
+				// description as the Value field, but since the item is
+				// flagged binary, the writer serializes it verbatim.
+				desc := "cover.jpg\x00"
+				binaryValue := desc + string(coverData)
+				newItems = append(newItems, APETagItem{
+					Key:   "Cover Art (Front)",
+					Value: binaryValue,
+					Flags: apeItemFlagBinary,
+				})
+			}
+		}
+
+		// Build the set of APE keys that the edit explicitly controls.
+		// Even if the value is empty (user cleared the field), the old
+		// value must be removed during merge.
+		overrideKeys := apeKeysFromFields(fields)
+		if coverPath != "" {
+			overrideKeys["COVER ART (FRONT)"] = struct{}{}
+		}
+
+		// Read existing tags so we can merge rather than replace.
+		// This preserves cover art and custom items not in the edit set.
+		existingTag, _ := ReadAPETags(filePath)
+		var finalItems []APETagItem
+		if existingTag != nil && len(existingTag.Items) > 0 {
+			finalItems = MergeAPEItems(existingTag.Items, newItems, overrideKeys)
+		} else {
+			finalItems = newItems
+		}
+
+		tag := &APETag{
+			Version: apeTagVersion2,
+			Items:   finalItems,
+		}
+
+		if err := WriteAPETags(filePath, tag); err != nil {
+			return "", fmt.Errorf("failed to write APE tags: %w", err)
 		}
 
 		resp := map[string]any{
 			"success": true,
-			"method":  "native",
+			"method":  "native_ape",
 		}
 		jsonBytes, _ := json.Marshal(resp)
 		return string(jsonBytes), nil

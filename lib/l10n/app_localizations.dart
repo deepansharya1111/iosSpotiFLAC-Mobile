@@ -412,6 +412,24 @@ abstract class AppLocalizations {
   /// **'Download highest resolution cover art'**
   String get optionsMaxQualityCoverSubtitle;
 
+  /// Title for ReplayGain setting toggle
+  ///
+  /// In en, this message translates to:
+  /// **'ReplayGain'**
+  String get optionsReplayGain;
+
+  /// Subtitle when ReplayGain is enabled
+  ///
+  /// In en, this message translates to:
+  /// **'Scan loudness and embed ReplayGain tags (EBU R128)'**
+  String get optionsReplayGainSubtitleOn;
+
+  /// Subtitle when ReplayGain is disabled
+  ///
+  /// In en, this message translates to:
+  /// **'Disabled: no loudness normalization tags'**
+  String get optionsReplayGainSubtitleOff;
+
   /// Setting title for how artist metadata is written into files
   ///
   /// In en, this message translates to:

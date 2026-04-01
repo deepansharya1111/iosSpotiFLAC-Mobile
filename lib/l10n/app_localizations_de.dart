@@ -166,6 +166,17 @@ class AppLocalizationsDe extends AppLocalizations {
       'Cover in höchster Auflösung herunterladen';
 
   @override
+  String get optionsReplayGain => 'ReplayGain';
+
+  @override
+  String get optionsReplayGainSubtitleOn =>
+      'Scan loudness and embed ReplayGain tags (EBU R128)';
+
+  @override
+  String get optionsReplayGainSubtitleOff =>
+      'Disabled: no loudness normalization tags';
+
+  @override
   String get optionsArtistTagMode => 'Artist Tag Mode';
 
   @override

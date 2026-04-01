@@ -135,6 +135,18 @@ class OptionsSettingsPage extends ConsumerWidget {
                     onChanged: (v) => ref
                         .read(settingsProvider.notifier)
                         .setMaxQualityCover(v),
+                  ),
+                  SettingsSwitchItem(
+                    icon: Icons.graphic_eq,
+                    title: context.l10n.optionsReplayGain,
+                    subtitle: settings.embedReplayGain
+                        ? context.l10n.optionsReplayGainSubtitleOn
+                        : context.l10n.optionsReplayGainSubtitleOff,
+                    value: settings.embedReplayGain,
+                    enabled: settings.embedMetadata,
+                    onChanged: (v) => ref
+                        .read(settingsProvider.notifier)
+                        .setEmbedReplayGain(v),
                     showDivider: false,
                   ),
                 ],

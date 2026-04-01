@@ -16,6 +16,7 @@ class AppSettings {
   final String
   artistTagMode; // 'joined' or 'split_vorbis' for Vorbis-based formats
   final bool embedLyrics;
+  final bool embedReplayGain; // Calculate and embed ReplayGain tags
   final bool maxQualityCover;
   final bool isFirstLaunch;
   final int concurrentDownloads;
@@ -90,6 +91,7 @@ class AppSettings {
     this.embedMetadata = true,
     this.artistTagMode = artistTagModeJoined,
     this.embedLyrics = true,
+    this.embedReplayGain = false,
     this.maxQualityCover = true,
     this.isFirstLaunch = true,
     this.concurrentDownloads = 1,
@@ -151,6 +153,7 @@ class AppSettings {
     bool? embedMetadata,
     String? artistTagMode,
     bool? embedLyrics,
+    bool? embedReplayGain,
     bool? maxQualityCover,
     bool? isFirstLaunch,
     int? concurrentDownloads,
@@ -207,6 +210,7 @@ class AppSettings {
       embedMetadata: embedMetadata ?? this.embedMetadata,
       artistTagMode: artistTagMode ?? this.artistTagMode,
       embedLyrics: embedLyrics ?? this.embedLyrics,
+      embedReplayGain: embedReplayGain ?? this.embedReplayGain,
       maxQualityCover: maxQualityCover ?? this.maxQualityCover,
       isFirstLaunch: isFirstLaunch ?? this.isFirstLaunch,
       concurrentDownloads: concurrentDownloads ?? this.concurrentDownloads,

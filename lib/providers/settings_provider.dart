@@ -232,6 +232,11 @@ class SettingsNotifier extends Notifier<AppSettings> {
     _saveSettings();
   }
 
+  void setEmbedReplayGain(bool enabled) {
+    state = state.copyWith(embedReplayGain: enabled);
+    _saveSettings();
+  }
+
   void setEmbedMetadata(bool enabled) {
     state = state.copyWith(embedMetadata: enabled);
     _saveSettings();

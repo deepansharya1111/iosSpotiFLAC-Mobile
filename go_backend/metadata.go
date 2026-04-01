@@ -118,6 +118,12 @@ type Metadata struct {
 	Copyright     string
 	Composer      string
 	Comment       string
+
+	// ReplayGain fields (stored as Vorbis Comments in FLAC)
+	ReplayGainTrackGain string // e.g. "-6.50 dB"
+	ReplayGainTrackPeak string // e.g. "0.988831"
+	ReplayGainAlbumGain string // e.g. "-7.20 dB"
+	ReplayGainAlbumPeak string // e.g. "1.000000"
 }
 
 func EmbedMetadata(filePath string, metadata Metadata, coverPath string) error {
@@ -144,61 +150,7 @@ func EmbedMetadata(filePath string, metadata Metadata, coverPath string) error {
 		cmt = flacvorbis.New()
 	}
 
-	setComment(cmt, "TITLE", metadata.Title)
-	setArtistComments(cmt, "ARTIST", metadata.Artist, metadata.ArtistTagMode)
-	setComment(cmt, "ALBUM", metadata.Album)
-	setArtistComments(
-		cmt,
-		"ALBUMARTIST",
-		metadata.AlbumArtist,
-		metadata.ArtistTagMode,
-	)
-	setComment(cmt, "DATE", metadata.Date)
-
-	if metadata.TrackNumber > 0 {
-		if metadata.TotalTracks > 0 {
-			setComment(cmt, "TRACKNUMBER", fmt.Sprintf("%d/%d", metadata.TrackNumber, metadata.TotalTracks))
-		} else {
-			setComment(cmt, "TRACKNUMBER", strconv.Itoa(metadata.TrackNumber))
-		}
-	}
-
-	if metadata.DiscNumber > 0 {
-		setComment(cmt, "DISCNUMBER", strconv.Itoa(metadata.DiscNumber))
-	}
-
-	if metadata.ISRC != "" {
-		setComment(cmt, "ISRC", metadata.ISRC)
-	}
-
-	if metadata.Description != "" {
-		setComment(cmt, "DESCRIPTION", metadata.Description)
-	}
-
-	if metadata.Lyrics != "" {
-		setComment(cmt, "LYRICS", metadata.Lyrics)
-		setComment(cmt, "UNSYNCEDLYRICS", metadata.Lyrics)
-	}
-
-	if metadata.Genre != "" {
-		setComment(cmt, "GENRE", metadata.Genre)
-	}
-
-	if metadata.Label != "" {
-		setComment(cmt, "ORGANIZATION", metadata.Label)
-	}
-
-	if metadata.Copyright != "" {
-		setComment(cmt, "COPYRIGHT", metadata.Copyright)
-	}
-
-	if metadata.Composer != "" {
-		setComment(cmt, "COMPOSER", metadata.Composer)
-	}
-
-	if metadata.Comment != "" {
-		setComment(cmt, "COMMENT", metadata.Comment)
-	}
+	writeVorbisMetadata(cmt, metadata)
 
 	cmtBlock := cmt.Marshal()
 	if cmtIdx >= 0 {
@@ -258,15 +210,274 @@ func EmbedMetadataWithCoverData(filePath string, metadata Metadata, coverData []
 		cmt = flacvorbis.New()
 	}
 
+	writeVorbisMetadata(cmt, metadata)
+
+	cmtBlock := cmt.Marshal()
+	if cmtIdx >= 0 {
+		f.Meta[cmtIdx] = &cmtBlock
+	} else {
+		f.Meta = append(f.Meta, &cmtBlock)
+	}
+
+	if len(coverData) > 0 {
+		for i := len(f.Meta) - 1; i >= 0; i-- {
+			if f.Meta[i].Type == flac.Picture {
+				f.Meta = append(f.Meta[:i], f.Meta[i+1:]...)
+			}
+		}
+
+		picBlock, err := buildPictureBlock("", coverData)
+		if err != nil {
+			return fmt.Errorf("failed to create picture block: %w", err)
+		}
+		f.Meta = append(f.Meta, &picBlock)
+		fmt.Printf("[Metadata] Cover art embedded successfully (%d bytes)\n", len(coverData))
+	}
+
+	return f.Save(filePath)
+}
+
+func ReadMetadata(filePath string) (*Metadata, error) {
+	f, err := flac.ParseFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse FLAC file: %w", err)
+	}
+
+	metadata := &Metadata{}
+
+	for _, meta := range f.Meta {
+		if meta.Type == flac.VorbisComment {
+			cmt, err := flacvorbis.ParseFromMetaDataBlock(*meta)
+			if err != nil {
+				continue
+			}
+
+			metadata.Title = getComment(cmt, "TITLE")
+			metadata.Artist = getJoinedComment(cmt, "ARTIST")
+			metadata.Album = getComment(cmt, "ALBUM")
+			metadata.AlbumArtist = getJoinedComment(cmt, "ALBUMARTIST")
+			if metadata.AlbumArtist == "" {
+				metadata.AlbumArtist = getJoinedComment(cmt, "ALBUM ARTIST")
+			}
+			if metadata.AlbumArtist == "" {
+				metadata.AlbumArtist = getJoinedComment(cmt, "ALBUM_ARTIST")
+			}
+			metadata.Date = getComment(cmt, "DATE")
+			metadata.ISRC = getComment(cmt, "ISRC")
+			metadata.Description = getComment(cmt, "DESCRIPTION")
+
+			metadata.Lyrics = getComment(cmt, "LYRICS")
+			if metadata.Lyrics == "" {
+				metadata.Lyrics = getComment(cmt, "UNSYNCEDLYRICS")
+			}
+
+			trackNum := getComment(cmt, "TRACKNUMBER")
+			if trackNum != "" {
+				fmt.Sscanf(trackNum, "%d", &metadata.TrackNumber)
+			}
+			if metadata.TrackNumber == 0 {
+				trackNum = getComment(cmt, "TRACK")
+				if trackNum != "" {
+					fmt.Sscanf(trackNum, "%d", &metadata.TrackNumber)
+				}
+			}
+
+			discNum := getComment(cmt, "DISCNUMBER")
+			if discNum != "" {
+				fmt.Sscanf(discNum, "%d", &metadata.DiscNumber)
+			}
+			if metadata.DiscNumber == 0 {
+				discNum = getComment(cmt, "DISC")
+				if discNum != "" {
+					fmt.Sscanf(discNum, "%d", &metadata.DiscNumber)
+				}
+			}
+
+			if metadata.Date == "" {
+				metadata.Date = getComment(cmt, "YEAR")
+			}
+
+			metadata.Genre = getComment(cmt, "GENRE")
+			metadata.Label = getComment(cmt, "ORGANIZATION")
+			if metadata.Label == "" {
+				metadata.Label = getComment(cmt, "LABEL")
+			}
+			if metadata.Label == "" {
+				metadata.Label = getComment(cmt, "PUBLISHER")
+			}
+			metadata.Copyright = getComment(cmt, "COPYRIGHT")
+			metadata.Composer = getComment(cmt, "COMPOSER")
+			metadata.Comment = getComment(cmt, "COMMENT")
+
+			// ReplayGain tags
+			metadata.ReplayGainTrackGain = getComment(cmt, "REPLAYGAIN_TRACK_GAIN")
+			metadata.ReplayGainTrackPeak = getComment(cmt, "REPLAYGAIN_TRACK_PEAK")
+			metadata.ReplayGainAlbumGain = getComment(cmt, "REPLAYGAIN_ALBUM_GAIN")
+			metadata.ReplayGainAlbumPeak = getComment(cmt, "REPLAYGAIN_ALBUM_PEAK")
+
+			break
+		}
+	}
+
+	return metadata, nil
+}
+
+// EditFlacFields opens a FLAC file and updates only the Vorbis Comment keys
+// that are explicitly present in the fields map.  Keys present with a non-empty
+// value are set; keys present with an empty value are removed (cleared).  Keys
+// absent from the map are left untouched.  This is the correct function for
+// partial edits (e.g. writing only ReplayGain tags) and full editor saves alike.
+func EditFlacFields(filePath string, fields map[string]string) error {
+	f, err := flac.ParseFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to parse FLAC file: %w", err)
+	}
+
+	var cmtIdx int = -1
+	var cmt *flacvorbis.MetaDataBlockVorbisComment
+
+	for idx, meta := range f.Meta {
+		if meta.Type == flac.VorbisComment {
+			cmtIdx = idx
+			cmt, err = flacvorbis.ParseFromMetaDataBlock(*meta)
+			if err != nil {
+				return fmt.Errorf("failed to parse vorbis comment: %w", err)
+			}
+			break
+		}
+	}
+	if cmt == nil {
+		cmt = flacvorbis.New()
+	}
+
+	artistMode := fields["artist_tag_mode"] // may be ""
+
+	// Mapping from fields-map key → one or more Vorbis Comment keys.
+	// Each entry is handled with set-or-clear semantics.
+	simpleKeys := map[string]string{
+		"title":                 "TITLE",
+		"album":                 "ALBUM",
+		"date":                  "DATE",
+		"isrc":                  "ISRC",
+		"genre":                 "GENRE",
+		"label":                 "ORGANIZATION",
+		"copyright":             "COPYRIGHT",
+		"composer":              "COMPOSER",
+		"comment":               "COMMENT",
+		"replaygain_track_gain": "REPLAYGAIN_TRACK_GAIN",
+		"replaygain_track_peak": "REPLAYGAIN_TRACK_PEAK",
+		"replaygain_album_gain": "REPLAYGAIN_ALBUM_GAIN",
+		"replaygain_album_peak": "REPLAYGAIN_ALBUM_PEAK",
+	}
+
+	for fieldKey, vorbisKey := range simpleKeys {
+		if v, ok := fields[fieldKey]; ok {
+			setOrClearComment(cmt, vorbisKey, v)
+		}
+	}
+
+	// Remove known aliases for fields that were just written/cleared, so that
+	// tags from other taggers (e.g. LABEL, PUBLISHER, ALBUM ARTIST) don't
+	// conflict with the canonical keys we use.
+	aliasCleanup := map[string][]string{
+		"label":     {"LABEL", "PUBLISHER"}, // canonical: ORGANIZATION
+		"date":      {"YEAR"},               // canonical: DATE
+		"genre":     {},                     // no common aliases
+		"copyright": {},
+	}
+	for fieldKey, aliases := range aliasCleanup {
+		if _, ok := fields[fieldKey]; ok {
+			for _, alias := range aliases {
+				removeCommentKey(cmt, alias)
+			}
+		}
+	}
+
+	// Artist fields: use split-artist logic when mode is set.
+	if v, ok := fields["artist"]; ok {
+		setOrClearArtistComments(cmt, "ARTIST", v, artistMode)
+	}
+	if v, ok := fields["album_artist"]; ok {
+		setOrClearArtistComments(cmt, "ALBUMARTIST", v, artistMode)
+		// Remove aliases from other taggers.
+		removeCommentKey(cmt, "ALBUM ARTIST")
+		removeCommentKey(cmt, "ALBUM_ARTIST")
+	}
+
+	// Track/disc numbers: present + empty → clear; present + "0" → clear.
+	if v, ok := fields["track_number"]; ok {
+		trackNum := 0
+		if v != "" {
+			fmt.Sscanf(v, "%d", &trackNum)
+		}
+		if trackNum > 0 {
+			setOrClearComment(cmt, "TRACKNUMBER", strconv.Itoa(trackNum))
+		} else {
+			removeCommentKey(cmt, "TRACKNUMBER")
+		}
+		removeCommentKey(cmt, "TRACK") // alias
+	}
+	if v, ok := fields["disc_number"]; ok {
+		discNum := 0
+		if v != "" {
+			fmt.Sscanf(v, "%d", &discNum)
+		}
+		if discNum > 0 {
+			setOrClearComment(cmt, "DISCNUMBER", strconv.Itoa(discNum))
+		} else {
+			removeCommentKey(cmt, "DISCNUMBER")
+		}
+		removeCommentKey(cmt, "DISC") // alias
+	}
+
+	// Lyrics: set both LYRICS + UNSYNCEDLYRICS, or clear both.
+	if v, ok := fields["lyrics"]; ok {
+		if v != "" {
+			setOrClearComment(cmt, "LYRICS", v)
+			setOrClearComment(cmt, "UNSYNCEDLYRICS", v)
+		} else {
+			removeCommentKey(cmt, "LYRICS")
+			removeCommentKey(cmt, "UNSYNCEDLYRICS")
+		}
+	}
+
+	cmtBlock := cmt.Marshal()
+	if cmtIdx >= 0 {
+		f.Meta[cmtIdx] = &cmtBlock
+	} else {
+		f.Meta = append(f.Meta, &cmtBlock)
+	}
+
+	// Cover art
+	coverPath := strings.TrimSpace(fields["cover_path"])
+	if coverPath != "" && fileExists(coverPath) {
+		coverData, err := os.ReadFile(coverPath)
+		if err == nil && len(coverData) > 0 {
+			// Remove existing pictures
+			for i := len(f.Meta) - 1; i >= 0; i-- {
+				if f.Meta[i].Type == flac.Picture {
+					f.Meta = append(f.Meta[:i], f.Meta[i+1:]...)
+				}
+			}
+			picBlock, err := buildPictureBlock("", coverData)
+			if err == nil {
+				f.Meta = append(f.Meta, &picBlock)
+			}
+		}
+	}
+
+	return f.Save(filePath)
+}
+
+// writeVorbisMetadata writes all metadata fields to a Vorbis Comment block.
+// Empty/zero values are simply skipped (not written, not cleared).  This is
+// used by the download embedding path where absent fields should preserve any
+// existing values.  The editor path uses EditFlacFields() instead.
+func writeVorbisMetadata(cmt *flacvorbis.MetaDataBlockVorbisComment, metadata Metadata) {
 	setComment(cmt, "TITLE", metadata.Title)
 	setArtistComments(cmt, "ARTIST", metadata.Artist, metadata.ArtistTagMode)
 	setComment(cmt, "ALBUM", metadata.Album)
-	setArtistComments(
-		cmt,
-		"ALBUMARTIST",
-		metadata.AlbumArtist,
-		metadata.ArtistTagMode,
-	)
+	setArtistComments(cmt, "ALBUMARTIST", metadata.AlbumArtist, metadata.ArtistTagMode)
 	setComment(cmt, "DATE", metadata.Date)
 
 	if metadata.TrackNumber > 0 {
@@ -314,96 +525,10 @@ func EmbedMetadataWithCoverData(filePath string, metadata Metadata, coverData []
 		setComment(cmt, "COMMENT", metadata.Comment)
 	}
 
-	cmtBlock := cmt.Marshal()
-	if cmtIdx >= 0 {
-		f.Meta[cmtIdx] = &cmtBlock
-	} else {
-		f.Meta = append(f.Meta, &cmtBlock)
-	}
-
-	if len(coverData) > 0 {
-		for i := len(f.Meta) - 1; i >= 0; i-- {
-			if f.Meta[i].Type == flac.Picture {
-				f.Meta = append(f.Meta[:i], f.Meta[i+1:]...)
-			}
-		}
-
-		picBlock, err := buildPictureBlock("", coverData)
-		if err != nil {
-			return fmt.Errorf("failed to create picture block: %w", err)
-		}
-		f.Meta = append(f.Meta, &picBlock)
-		fmt.Printf("[Metadata] Cover art embedded successfully (%d bytes)\n", len(coverData))
-	}
-
-	return f.Save(filePath)
-}
-
-func ReadMetadata(filePath string) (*Metadata, error) {
-	f, err := flac.ParseFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse FLAC file: %w", err)
-	}
-
-	metadata := &Metadata{}
-
-	for _, meta := range f.Meta {
-		if meta.Type == flac.VorbisComment {
-			cmt, err := flacvorbis.ParseFromMetaDataBlock(*meta)
-			if err != nil {
-				continue
-			}
-
-			metadata.Title = getComment(cmt, "TITLE")
-			metadata.Artist = getJoinedComment(cmt, "ARTIST")
-			metadata.Album = getComment(cmt, "ALBUM")
-			metadata.AlbumArtist = getJoinedComment(cmt, "ALBUMARTIST")
-			metadata.Date = getComment(cmt, "DATE")
-			metadata.ISRC = getComment(cmt, "ISRC")
-			metadata.Description = getComment(cmt, "DESCRIPTION")
-
-			metadata.Lyrics = getComment(cmt, "LYRICS")
-			if metadata.Lyrics == "" {
-				metadata.Lyrics = getComment(cmt, "UNSYNCEDLYRICS")
-			}
-
-			trackNum := getComment(cmt, "TRACKNUMBER")
-			if trackNum != "" {
-				fmt.Sscanf(trackNum, "%d", &metadata.TrackNumber)
-			}
-			if metadata.TrackNumber == 0 {
-				trackNum = getComment(cmt, "TRACK")
-				if trackNum != "" {
-					fmt.Sscanf(trackNum, "%d", &metadata.TrackNumber)
-				}
-			}
-
-			discNum := getComment(cmt, "DISCNUMBER")
-			if discNum != "" {
-				fmt.Sscanf(discNum, "%d", &metadata.DiscNumber)
-			}
-			if metadata.DiscNumber == 0 {
-				discNum = getComment(cmt, "DISC")
-				if discNum != "" {
-					fmt.Sscanf(discNum, "%d", &metadata.DiscNumber)
-				}
-			}
-
-			if metadata.Date == "" {
-				metadata.Date = getComment(cmt, "YEAR")
-			}
-
-			metadata.Genre = getComment(cmt, "GENRE")
-			metadata.Label = getComment(cmt, "ORGANIZATION")
-			metadata.Copyright = getComment(cmt, "COPYRIGHT")
-			metadata.Composer = getComment(cmt, "COMPOSER")
-			metadata.Comment = getComment(cmt, "COMMENT")
-
-			break
-		}
-	}
-
-	return metadata, nil
+	setComment(cmt, "REPLAYGAIN_TRACK_GAIN", metadata.ReplayGainTrackGain)
+	setComment(cmt, "REPLAYGAIN_TRACK_PEAK", metadata.ReplayGainTrackPeak)
+	setComment(cmt, "REPLAYGAIN_ALBUM_GAIN", metadata.ReplayGainAlbumGain)
+	setComment(cmt, "REPLAYGAIN_ALBUM_PEAK", metadata.ReplayGainAlbumPeak)
 }
 
 func setComment(cmt *flacvorbis.MetaDataBlockVorbisComment, key, value string) {
@@ -414,12 +539,50 @@ func setComment(cmt *flacvorbis.MetaDataBlockVorbisComment, key, value string) {
 	cmt.Comments = append(cmt.Comments, key+"="+value)
 }
 
+// setOrClearComment writes a Vorbis Comment, or removes the key if value is
+// empty.  Used by the metadata editor path where empty means "delete this tag".
+func setOrClearComment(cmt *flacvorbis.MetaDataBlockVorbisComment, key, value string) {
+	if value == "" {
+		removeCommentKey(cmt, key)
+		return
+	}
+	removeCommentKey(cmt, key)
+	cmt.Comments = append(cmt.Comments, key+"="+value)
+}
+
 func setArtistComments(cmt *flacvorbis.MetaDataBlockVorbisComment, key, value, mode string) {
+	if value == "" {
+		return
+	}
 	values := []string{value}
 	if shouldSplitVorbisArtistTags(mode) {
 		values = splitArtistTagValues(value)
 	}
 	if len(values) == 0 {
+		return
+	}
+	removeCommentKey(cmt, key)
+	for _, artist := range values {
+		if strings.TrimSpace(artist) == "" {
+			continue
+		}
+		cmt.Comments = append(cmt.Comments, key+"="+artist)
+	}
+}
+
+// setOrClearArtistComments writes artist Vorbis Comments, or removes the key
+// if value is empty.  Used by the metadata editor path.
+func setOrClearArtistComments(cmt *flacvorbis.MetaDataBlockVorbisComment, key, value, mode string) {
+	if value == "" {
+		removeCommentKey(cmt, key)
+		return
+	}
+	values := []string{value}
+	if shouldSplitVorbisArtistTags(mode) {
+		values = splitArtistTagValues(value)
+	}
+	if len(values) == 0 {
+		removeCommentKey(cmt, key)
 		return
 	}
 	removeCommentKey(cmt, key)
@@ -820,6 +983,14 @@ func ReadM4ATags(filePath string) (*AudioMetadata, error) {
 					if metadata.Lyrics == "" {
 						metadata.Lyrics = value
 					}
+				case "REPLAYGAIN_TRACK_GAIN":
+					metadata.ReplayGainTrackGain = value
+				case "REPLAYGAIN_TRACK_PEAK":
+					metadata.ReplayGainTrackPeak = value
+				case "REPLAYGAIN_ALBUM_GAIN":
+					metadata.ReplayGainAlbumGain = value
+				case "REPLAYGAIN_ALBUM_PEAK":
+					metadata.ReplayGainAlbumPeak = value
 				}
 			}
 		}

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:ffmpeg_kit_flutter_new_full/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_full/ffmpeg_kit_config.dart';
@@ -884,6 +885,159 @@ class FFmpegService {
     }
   }
 
+  /// Scan an audio file for EBU R128 loudness and compute ReplayGain values.
+  ///
+  /// Uses the FFmpeg `ebur128` audio filter to measure integrated loudness (LUFS)
+  /// and true peak. ReplayGain reference level is -18 LUFS (≈ 89 dB SPL).
+  ///
+  /// Returns a [ReplayGainResult] on success, or null if the scan fails.
+  static Future<ReplayGainResult?> scanReplayGain(String filePath) async {
+    // Run FFmpeg with ebur128 filter + astats for true peak.
+    // -nostats suppresses the interactive progress line.
+    // ebur128=peak=true prints integrated loudness + true peak.
+    final command =
+        '-nostats -i "$filePath" -filter_complex ebur128=peak=true -f null -';
+
+    _log.d(
+      'Scanning ReplayGain for: ${filePath.split(Platform.pathSeparator).last}',
+    );
+    final result = await _execute(command);
+
+    // FFmpeg writes ebur128 stats to stderr, which ends up in the output.
+    // Even on "failure" return code, the output may contain valid data
+    // because -f null always "fails" on some FFmpeg builds.
+    final output = result.output;
+
+    // Parse integrated loudness: "I:        -14.0 LUFS"
+    final integratedMatch = RegExp(
+      r'I:\s+(-?\d+\.?\d*)\s+LUFS',
+    ).allMatches(output);
+    if (integratedMatch.isEmpty) {
+      _log.w('ReplayGain scan: could not parse integrated loudness');
+      return null;
+    }
+    // Take the last match (the summary, not per-segment values)
+    final integratedLufs = double.tryParse(integratedMatch.last.group(1) ?? '');
+    if (integratedLufs == null) {
+      _log.w('ReplayGain scan: invalid integrated loudness value');
+      return null;
+    }
+
+    // Parse true peak: "Peak:      0.9 dBFS" or "True peak:\n    Peak:    -0.3 dBFS"
+    // The ebur128 filter with peak=true outputs per-channel true peak.
+    // We want the highest (maximum) true peak across all channels.
+    double? truePeakDbfs;
+    final peakMatches = RegExp(
+      r'Peak:\s+(-?\d+\.?\d*)\s+dBFS',
+    ).allMatches(output);
+    for (final m in peakMatches) {
+      final val = double.tryParse(m.group(1) ?? '');
+      if (val != null) {
+        if (truePeakDbfs == null || val > truePeakDbfs) {
+          truePeakDbfs = val;
+        }
+      }
+    }
+
+    // ReplayGain reference level: -18 LUFS
+    const replayGainReferenceLufs = -18.0;
+    final gainDb = replayGainReferenceLufs - integratedLufs;
+
+    // Convert true peak from dBFS to linear ratio.
+    // If no true peak was found, fall back to 1.0 (0 dBFS).
+    double peakLinear;
+    if (truePeakDbfs != null) {
+      // 10^(dBFS/20) converts dBFS to linear amplitude
+      peakLinear = math.pow(10, truePeakDbfs / 20.0).toDouble();
+    } else {
+      peakLinear = 1.0;
+    }
+
+    // Format to standard ReplayGain precision
+    final trackGain =
+        '${gainDb >= 0 ? "+" : ""}${gainDb.toStringAsFixed(2)} dB';
+    final trackPeak = peakLinear.toStringAsFixed(6);
+
+    _log.i(
+      'ReplayGain scan result: gain=$trackGain, peak=$trackPeak (integrated=${integratedLufs.toStringAsFixed(1)} LUFS)',
+    );
+
+    return ReplayGainResult(
+      trackGain: trackGain,
+      trackPeak: trackPeak,
+      integratedLufs: integratedLufs,
+      truePeakLinear: peakLinear,
+    );
+  }
+
+  /// Write album ReplayGain tags to a non-FLAC file (MP3/Opus) using FFmpeg.
+  /// Preserves all existing metadata and adds/overwrites album gain fields.
+  /// Write album ReplayGain tags to a file via FFmpeg.
+  ///
+  /// For local files, replaces the file in-place and returns `true`.
+  /// When [returnTempPath] is `true` (for SAF content:// URIs), the method
+  /// skips the file replacement and returns the temp output path as a String
+  /// via [tempOutputPath].  The caller is responsible for writing the temp
+  /// file to the SAF URI and cleaning it up.
+  static Future<bool> writeAlbumReplayGainTags(
+    String filePath,
+    String albumGain,
+    String albumPeak, {
+    bool returnTempPath = false,
+    void Function(String tempPath)? onTempReady,
+  }) async {
+    final ext = filePath.contains('.')
+        ? '.${filePath.split('.').last}'
+        : '.tmp';
+    final tempDir = await getTemporaryDirectory();
+    final tempOutput = _nextTempEmbedPath(tempDir.path, ext);
+
+    final sanitizedGain = albumGain.replaceAll('"', '\\"');
+    final sanitizedPeak = albumPeak.replaceAll('"', '\\"');
+
+    // -map_metadata 0 preserves all existing metadata from the input.
+    // -metadata flags add/overwrite only the specified keys.
+    final command =
+        '-i "$filePath" -map 0 -c copy -map_metadata 0 '
+        '-metadata REPLAYGAIN_ALBUM_GAIN="$sanitizedGain" '
+        '-metadata REPLAYGAIN_ALBUM_PEAK="$sanitizedPeak" '
+        '"$tempOutput" -y';
+
+    _log.d('Writing album ReplayGain tags via FFmpeg');
+    final result = await _execute(command);
+
+    if (result.success) {
+      try {
+        final tempFile = File(tempOutput);
+        if (await tempFile.exists()) {
+          if (returnTempPath) {
+            // Caller will handle SAF write-back and cleanup.
+            onTempReady?.call(tempOutput);
+            return true;
+          }
+          final originalFile = File(filePath);
+          if (await originalFile.exists()) {
+            await originalFile.delete();
+          }
+          await tempFile.copy(filePath);
+          await tempFile.delete();
+          _log.d('Album ReplayGain tags written successfully');
+          return true;
+        }
+      } catch (e) {
+        _log.w('Failed to replace file with album ReplayGain: $e');
+      }
+    }
+
+    // Cleanup temp file on failure
+    try {
+      final tempFile = File(tempOutput);
+      if (await tempFile.exists()) await tempFile.delete();
+    } catch (_) {}
+
+    return false;
+  }
+
   static Future<String?> embedMetadata({
     required String flacPath,
     String? coverPath,
@@ -1574,7 +1728,6 @@ class FFmpegService {
     for (final entry in metadata.entries) {
       final key = entry.key.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
       final value = entry.value;
-      if (value.trim().isEmpty) continue;
 
       switch (key) {
         case 'TITLE':
@@ -1627,6 +1780,19 @@ class FFmpegService {
         case 'UNSYNCEDLYRICS':
           vorbis['LYRICS'] = value;
           vorbis['UNSYNCEDLYRICS'] = value;
+          break;
+        // ReplayGain fields
+        case 'REPLAYGAINTRACKGAIN':
+          vorbis['REPLAYGAIN_TRACK_GAIN'] = value;
+          break;
+        case 'REPLAYGAINTRACKPEAK':
+          vorbis['REPLAYGAIN_TRACK_PEAK'] = value;
+          break;
+        case 'REPLAYGAINALBUMGAIN':
+          vorbis['REPLAYGAIN_ALBUM_GAIN'] = value;
+          break;
+        case 'REPLAYGAINALBUMPEAK':
+          vorbis['REPLAYGAIN_ALBUM_PEAK'] = value;
           break;
       }
     }
@@ -1699,8 +1865,12 @@ class FFmpegService {
     String? rawValue, {
     String artistTagMode = artistTagModeJoined,
   }) {
-    final value = rawValue?.trim() ?? '';
+    if (rawValue == null) return;
+    final value = rawValue.trim();
     if (value.isEmpty) {
+      // Emit an empty entry so that with preserveMetadata the old tag is
+      // overridden (cleared) by FFmpeg's `-metadata key=""`.
+      entries.add(MapEntry(key, ''));
       return;
     }
 
@@ -1721,7 +1891,6 @@ class FFmpegService {
     for (final entry in metadata.entries) {
       final key = entry.key.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
       final value = entry.value;
-      if (value.trim().isEmpty) continue;
 
       switch (key) {
         case 'TITLE':
@@ -1773,6 +1942,19 @@ class FFmpegService {
         case 'UNSYNCEDLYRICS':
           m4aMap['lyrics'] = value;
           break;
+        // ReplayGain as iTunes freeform atoms (com.apple.iTunes:replaygain_*)
+        case 'REPLAYGAINTRACKGAIN':
+          m4aMap['REPLAYGAIN_TRACK_GAIN'] = value;
+          break;
+        case 'REPLAYGAINTRACKPEAK':
+          m4aMap['REPLAYGAIN_TRACK_PEAK'] = value;
+          break;
+        case 'REPLAYGAINALBUMGAIN':
+          m4aMap['REPLAYGAIN_ALBUM_GAIN'] = value;
+          break;
+        case 'REPLAYGAINALBUMPEAK':
+          m4aMap['REPLAYGAIN_ALBUM_PEAK'] = value;
+          break;
       }
     }
 
@@ -1788,9 +1970,6 @@ class FFmpegService {
       final key = entry.key.toUpperCase();
       final normalizedKey = key.replaceAll(RegExp(r'[^A-Z0-9]'), '');
       final value = entry.value;
-      if (value.trim().isEmpty) {
-        continue;
-      }
 
       switch (normalizedKey) {
         case 'TITLE':
@@ -1835,6 +2014,20 @@ class FFmpegService {
           break;
         case 'COMMENT':
           id3Map['comment'] = value;
+          break;
+        // ReplayGain as TXXX user-defined frames
+        // FFmpeg writes these as TXXX frames automatically with uppercase keys
+        case 'REPLAYGAINTRACKGAIN':
+          id3Map['REPLAYGAIN_TRACK_GAIN'] = value;
+          break;
+        case 'REPLAYGAINTRACKPEAK':
+          id3Map['REPLAYGAIN_TRACK_PEAK'] = value;
+          break;
+        case 'REPLAYGAINALBUMGAIN':
+          id3Map['REPLAYGAIN_ALBUM_GAIN'] = value;
+          break;
+        case 'REPLAYGAINALBUMPEAK':
+          id3Map['REPLAYGAIN_ALBUM_PEAK'] = value;
           break;
         default:
           id3Map[key.toLowerCase()] = value;
@@ -2020,4 +2213,30 @@ class LiveDecryptedStreamResult {
     required this.format,
     required this.session,
   });
+}
+
+/// Result of an EBU R128 loudness scan, used to compute ReplayGain tags.
+class ReplayGainResult {
+  /// Track gain in dB, e.g. "-6.50 dB"
+  final String trackGain;
+
+  /// Track peak as a linear ratio, e.g. "0.988831"
+  final String trackPeak;
+
+  /// Raw integrated loudness in LUFS (needed for album gain computation)
+  final double integratedLufs;
+
+  /// Raw true peak as linear ratio (needed for album peak computation)
+  final double truePeakLinear;
+
+  const ReplayGainResult({
+    required this.trackGain,
+    required this.trackPeak,
+    required this.integratedLufs,
+    required this.truePeakLinear,
+  });
+
+  @override
+  String toString() =>
+      'ReplayGainResult(trackGain: $trackGain, trackPeak: $trackPeak)';
 }

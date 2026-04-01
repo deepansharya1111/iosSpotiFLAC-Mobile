@@ -3401,18 +3401,13 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
         for (final path in finalOutputPaths) {
           if (path.toLowerCase().endsWith('.flac')) {
             try {
-              final metadata = await PlatformBridge.readFileMetadata(path);
-              if (metadata['error'] == null) {
-                final fields = <String, String>{'cover_path': coverPath};
-                for (final entry in metadata.entries) {
-                  if (entry.key == 'error' || entry.value == null) continue;
-                  final v = entry.value.toString().trim();
-                  if (v.isNotEmpty) {
-                    fields[entry.key] = v;
-                  }
-                }
-                await PlatformBridge.editFileMetadata(path, fields);
-              }
+              // Only send the cover_path field — EditFlacFields uses
+              // field-presence semantics, so omitting artist/album_artist
+              // means those keys won't be rewritten.  This preserves any
+              // existing split artist Vorbis Comments.
+              await PlatformBridge.editFileMetadata(path, {
+                'cover_path': coverPath,
+              });
             } catch (e) {
               _log.w('Failed to embed cover to split track: $e');
             }
@@ -4950,48 +4945,32 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
         final isOpus = lower.endsWith('.opus') || lower.endsWith('.ogg');
         final isM4A = lower.endsWith('.m4a') || lower.endsWith('.aac');
 
-        final vorbisMap = <String, String>{};
-        if (metadata['title']?.isNotEmpty == true) {
-          vorbisMap['TITLE'] = metadata['title']!;
-        }
-        if (metadata['artist']?.isNotEmpty == true) {
-          vorbisMap['ARTIST'] = metadata['artist']!;
-        }
-        if (metadata['album']?.isNotEmpty == true) {
-          vorbisMap['ALBUM'] = metadata['album']!;
-        }
-        if (metadata['album_artist']?.isNotEmpty == true) {
-          vorbisMap['ALBUMARTIST'] = metadata['album_artist']!;
-        }
-        if (metadata['date']?.isNotEmpty == true) {
-          vorbisMap['DATE'] = metadata['date']!;
-        }
-        if (metadata['track_number']?.isNotEmpty == true &&
-            metadata['track_number'] != '0') {
-          vorbisMap['TRACKNUMBER'] = metadata['track_number']!;
-        }
-        if (metadata['disc_number']?.isNotEmpty == true &&
-            metadata['disc_number'] != '0') {
-          vorbisMap['DISCNUMBER'] = metadata['disc_number']!;
-        }
-        if (metadata['genre']?.isNotEmpty == true) {
-          vorbisMap['GENRE'] = metadata['genre']!;
-        }
-        if (metadata['isrc']?.isNotEmpty == true) {
-          vorbisMap['ISRC'] = metadata['isrc']!;
-        }
-        if (metadata['label']?.isNotEmpty == true) {
-          vorbisMap['ORGANIZATION'] = metadata['label']!;
-        }
-        if (metadata['copyright']?.isNotEmpty == true) {
-          vorbisMap['COPYRIGHT'] = metadata['copyright']!;
-        }
-        if (metadata['composer']?.isNotEmpty == true) {
-          vorbisMap['COMPOSER'] = metadata['composer']!;
-        }
-        if (metadata['comment']?.isNotEmpty == true) {
-          vorbisMap['COMMENT'] = metadata['comment']!;
-        }
+        // Always include all known fields so -map_metadata 0 + explicit
+        // -metadata flags can both preserve custom tags AND clear fields
+        // the user emptied.
+        final vorbisMap = <String, String>{
+          'TITLE': metadata['title'] ?? '',
+          'ARTIST': metadata['artist'] ?? '',
+          'ALBUM': metadata['album'] ?? '',
+          'ALBUMARTIST': metadata['album_artist'] ?? '',
+          'DATE': metadata['date'] ?? '',
+          'TRACKNUMBER':
+              (metadata['track_number']?.isNotEmpty == true &&
+                  metadata['track_number'] != '0')
+              ? metadata['track_number']!
+              : '',
+          'DISCNUMBER':
+              (metadata['disc_number']?.isNotEmpty == true &&
+                  metadata['disc_number'] != '0')
+              ? metadata['disc_number']!
+              : '',
+          'GENRE': metadata['genre'] ?? '',
+          'ISRC': metadata['isrc'] ?? '',
+          'ORGANIZATION': metadata['label'] ?? '',
+          'COPYRIGHT': metadata['copyright'] ?? '',
+          'COMPOSER': metadata['composer'] ?? '',
+          'COMMENT': metadata['comment'] ?? '',
+        };
         try {
           final existingMetadata = await PlatformBridge.readFileMetadata(
             ffmpegTarget,
@@ -5001,8 +4980,25 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
             vorbisMap['LYRICS'] = existingLyrics;
             vorbisMap['UNSYNCEDLYRICS'] = existingLyrics;
           }
+          // Preserve ReplayGain tags if present — these are computed once
+          // during download and should survive manual metadata edits.
+          final rgFields = <String, String>{
+            'REPLAYGAIN_TRACK_GAIN':
+                existingMetadata['replaygain_track_gain']?.toString() ?? '',
+            'REPLAYGAIN_TRACK_PEAK':
+                existingMetadata['replaygain_track_peak']?.toString() ?? '',
+            'REPLAYGAIN_ALBUM_GAIN':
+                existingMetadata['replaygain_album_gain']?.toString() ?? '',
+            'REPLAYGAIN_ALBUM_PEAK':
+                existingMetadata['replaygain_album_peak']?.toString() ?? '',
+          };
+          rgFields.forEach((key, value) {
+            if (value.isNotEmpty) {
+              vorbisMap[key] = value;
+            }
+          });
         } catch (_) {
-          // Lyrics preservation is best-effort.
+          // Lyrics/ReplayGain preservation is best-effort.
         }
 
         String? existingCoverPath = _selectedCoverPath ?? _currentCoverPath;
@@ -5036,12 +5032,14 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
             mp3Path: ffmpegTarget,
             coverPath: existingCoverPath,
             metadata: vorbisMap,
+            preserveMetadata: true,
           );
         } else if (isM4A) {
           ffmpegResult = await FFmpegService.embedMetadataToM4a(
             m4aPath: ffmpegTarget,
             coverPath: existingCoverPath,
             metadata: vorbisMap,
+            preserveMetadata: true,
           );
         } else if (isOpus) {
           ffmpegResult = await FFmpegService.embedMetadataToOpus(
@@ -5049,6 +5047,7 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
             coverPath: existingCoverPath,
             metadata: vorbisMap,
             artistTagMode: widget.artistTagMode,
+            preserveMetadata: true,
           );
         }
 

@@ -198,6 +198,18 @@
   "@optionsMaxQualityCoverSubtitle": {
     "description": "Subtitle for max quality cover"
   },
+  "optionsReplayGain": "ReplayGain",
+  "@optionsReplayGain": {
+    "description": "Title for ReplayGain setting toggle"
+  },
+  "optionsReplayGainSubtitleOn": "Scan loudness and embed ReplayGain tags (EBU R128)",
+  "@optionsReplayGainSubtitleOn": {
+    "description": "Subtitle when ReplayGain is enabled"
+  },
+  "optionsReplayGainSubtitleOff": "Disabled: no loudness normalization tags",
+  "@optionsReplayGainSubtitleOff": {
+    "description": "Subtitle when ReplayGain is disabled"
+  },
   "optionsArtistTagMode": "Artist Tag Mode",
   "@optionsArtistTagMode": {
     "description": "Setting title for how artist metadata is written into files"

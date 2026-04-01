@@ -156,6 +156,17 @@ class AppLocalizationsKo extends AppLocalizations {
   String get optionsMaxQualityCoverSubtitle => '최고 품질의 커버 이미지를 다운로드';
 
   @override
+  String get optionsReplayGain => 'ReplayGain';
+
+  @override
+  String get optionsReplayGainSubtitleOn =>
+      'Scan loudness and embed ReplayGain tags (EBU R128)';
+
+  @override
+  String get optionsReplayGainSubtitleOff =>
+      'Disabled: no loudness normalization tags';
+
+  @override
   String get optionsArtistTagMode => 'Artist Tag Mode';
 
   @override

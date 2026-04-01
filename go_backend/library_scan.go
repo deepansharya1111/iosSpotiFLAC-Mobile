@@ -66,6 +66,9 @@ var supportedAudioFormats = map[string]bool{
 	".mp3":  true,
 	".opus": true,
 	".ogg":  true,
+	".ape":  true,
+	".wv":   true,
+	".mpc":  true,
 	".cue":  true,
 }
 
@@ -315,6 +318,8 @@ func scanAudioFileWithKnownModTimeAndDisplayNameAndCoverCacheKey(filePath, displ
 		return scanMP3File(filePath, result, displayNameHint)
 	case ".opus", ".ogg":
 		return scanOggFile(filePath, result, displayNameHint)
+	case ".ape", ".wv", ".mpc":
+		return scanAPEFile(filePath, result, displayNameHint)
 	default:
 		return scanFromFilename(filePath, displayNameHint, result)
 	}
@@ -471,6 +476,37 @@ func scanOggFile(filePath string, result *LibraryScanResult, displayNameHint str
 		if quality.Bitrate > 0 {
 			result.Bitrate = quality.Bitrate / 1000 // convert bps to kbps
 		}
+	}
+
+	applyDefaultLibraryMetadata(filePath, displayNameHint, result)
+
+	return result, nil
+}
+
+func scanAPEFile(filePath string, result *LibraryScanResult, displayNameHint string) (*LibraryScanResult, error) {
+	tag, err := ReadAPETags(filePath)
+	if err != nil {
+		GoLog("[LibraryScan] APE tag read error for %s: %v\n", filePath, err)
+		return scanFromFilename(filePath, displayNameHint, result)
+	}
+
+	metadata := APETagToAudioMetadata(tag)
+	if metadata == nil {
+		return scanFromFilename(filePath, displayNameHint, result)
+	}
+
+	result.TrackName = metadata.Title
+	result.ArtistName = metadata.Artist
+	result.AlbumName = metadata.Album
+	result.AlbumArtist = metadata.AlbumArtist
+	result.ISRC = metadata.ISRC
+	result.TrackNumber = metadata.TrackNumber
+	result.DiscNumber = metadata.DiscNumber
+	result.Genre = metadata.Genre
+	if metadata.Date != "" {
+		result.ReleaseDate = metadata.Date
+	} else {
+		result.ReleaseDate = metadata.Year
 	}
 
 	applyDefaultLibraryMetadata(filePath, displayNameHint, result)

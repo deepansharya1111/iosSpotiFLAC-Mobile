@@ -28,6 +28,11 @@ type AudioMetadata struct {
 	Copyright   string
 	Composer    string
 	Comment     string
+	// ReplayGain fields (text values, e.g. "-6.50 dB", "0.988831")
+	ReplayGainTrackGain string
+	ReplayGainTrackPeak string
+	ReplayGainAlbumGain string
+	ReplayGainAlbumPeak string
 }
 
 type MP3Quality struct {
@@ -310,6 +315,17 @@ func parseID3v23Frames(data []byte, metadata *AudioMetadata, version byte, tagUn
 			desc, userValue := extractUserTextFrame(frameData)
 			if isLyricsDescription(desc) && userValue != "" && metadata.Lyrics == "" {
 				metadata.Lyrics = userValue
+			}
+			upperDesc := strings.ToUpper(desc)
+			switch upperDesc {
+			case "REPLAYGAIN_TRACK_GAIN":
+				metadata.ReplayGainTrackGain = userValue
+			case "REPLAYGAIN_TRACK_PEAK":
+				metadata.ReplayGainTrackPeak = userValue
+			case "REPLAYGAIN_ALBUM_GAIN":
+				metadata.ReplayGainAlbumGain = userValue
+			case "REPLAYGAIN_ALBUM_PEAK":
+				metadata.ReplayGainAlbumPeak = userValue
 			}
 		}
 
@@ -1038,6 +1054,14 @@ func parseVorbisComments(data []byte, metadata *AudioMetadata) {
 			metadata.Label = value
 		case "COPYRIGHT":
 			metadata.Copyright = value
+		case "REPLAYGAIN_TRACK_GAIN":
+			metadata.ReplayGainTrackGain = value
+		case "REPLAYGAIN_TRACK_PEAK":
+			metadata.ReplayGainTrackPeak = value
+		case "REPLAYGAIN_ALBUM_GAIN":
+			metadata.ReplayGainAlbumGain = value
+		case "REPLAYGAIN_ALBUM_PEAK":
+			metadata.ReplayGainAlbumPeak = value
 		}
 	}
 

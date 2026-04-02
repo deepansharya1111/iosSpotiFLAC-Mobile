@@ -3242,9 +3242,14 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
     );
   }
 
-  Future<void> _embedMetadataAndCover(
-    String flacPath,
+  /// Unified metadata, cover, lyrics, and ReplayGain embedding for all formats.
+  ///
+  /// [format] must be one of `'flac'`, `'mp3'`, or `'opus'`.
+  /// [writeExternalLrc] only applies to FLAC (non-SAF paths handle LRC separately).
+  Future<void> _embedMetadataToFile(
+    String filePath,
     Track track, {
+    required String format,
     String? genre,
     String? label,
     String? copyright,
@@ -3253,23 +3258,29 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
   }) async {
     final settings = ref.read(settingsProvider);
     if (!settings.embedMetadata) {
-      _log.d('Metadata embedding disabled, skipping FLAC metadata/cover embed');
+      _log.d(
+        'Metadata embedding disabled, skipping $format metadata/cover embed',
+      );
       return;
     }
 
+    final isFlac = format == 'flac';
+    final isMp3 = format == 'mp3';
+
+    // ── Cover download ──────────────────────────────────────────────
     String? coverPath;
     var coverUrl = normalizeRemoteHttpUrl(track.coverUrl);
     if (coverUrl != null && coverUrl.isNotEmpty) {
       try {
         if (settings.maxQualityCover) {
           coverUrl = _upgradeToMaxQualityCover(coverUrl);
-          _log.d('Cover URL upgraded to max quality: $coverUrl');
+          _log.d('Cover URL upgraded to max quality for $format: $coverUrl');
         }
 
         final tempDir = await getTemporaryDirectory();
         final uniqueId =
             '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(10000)}';
-        coverPath = '${tempDir.path}/cover_$uniqueId.jpg';
+        coverPath = '${tempDir.path}/cover_${format}_$uniqueId.jpg';
 
         final httpClient = HttpClient();
         final request = await httpClient.getUrl(Uri.parse(coverUrl));
@@ -3279,19 +3290,22 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
           final sink = file.openWrite();
           await response.pipe(sink);
           await sink.close();
-          _log.d('Cover downloaded to temp: $coverPath');
+          _log.d('Cover downloaded for $format: $coverPath');
         } else {
-          _log.w('Failed to download cover: HTTP ${response.statusCode}');
+          _log.w(
+            'Failed to download cover for $format: HTTP ${response.statusCode}',
+          );
           coverPath = null;
         }
         httpClient.close();
       } catch (e) {
-        _log.e('Failed to download cover: $e');
+        _log.e('Failed to download cover for $format: $e');
         coverPath = null;
       }
     }
 
     try {
+      // ── Metadata map ────────────────────────────────────────────────
       final metadata = <String, String>{
         'TITLE': track.name,
         'ARTIST': track.artistName,
@@ -3303,38 +3317,26 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
 
       if (track.trackNumber != null && track.trackNumber! > 0) {
         metadata['TRACKNUMBER'] = track.trackNumber.toString();
-        metadata['TRACK'] = track.trackNumber.toString();
+        if (isFlac || isMp3) metadata['TRACK'] = track.trackNumber.toString();
       }
-
       if (track.discNumber != null && track.discNumber! > 0) {
         metadata['DISCNUMBER'] = track.discNumber.toString();
-        metadata['DISC'] = track.discNumber.toString();
+        if (isFlac || isMp3) metadata['DISC'] = track.discNumber.toString();
       }
-
       if (track.releaseDate != null) {
         metadata['DATE'] = track.releaseDate!;
-        metadata['YEAR'] = track.releaseDate!.split('-').first;
+        if (isFlac || isMp3) {
+          metadata['YEAR'] = track.releaseDate!.split('-').first;
+        }
       }
-
-      if (track.isrc != null) {
-        metadata['ISRC'] = track.isrc!;
-      }
-
-      if (genre != null && genre.isNotEmpty) {
-        metadata['GENRE'] = genre;
-        _log.d('Adding GENRE: $genre');
-      }
-      if (label != null && label.isNotEmpty) {
-        metadata['ORGANIZATION'] = label;
-        _log.d('Adding ORGANIZATION (label): $label');
-      }
+      if (track.isrc != null) metadata['ISRC'] = track.isrc!;
+      if (genre != null && genre.isNotEmpty) metadata['GENRE'] = genre;
+      if (label != null && label.isNotEmpty) metadata['ORGANIZATION'] = label;
       if (copyright != null && copyright.isNotEmpty) {
         metadata['COPYRIGHT'] = copyright;
-        _log.d('Adding COPYRIGHT: $copyright');
       }
 
-      _log.d('Metadata map content: $metadata');
-
+      // ── Lyrics ──────────────────────────────────────────────────────
       final lyricsMode = settings.lyricsMode;
       final extensionState = ref.read(extensionProvider);
       final skipLyrics = _shouldSkipLyrics(
@@ -3350,515 +3352,142 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
           settings.embedLyrics &&
           !skipLyrics &&
           (lyricsMode == 'external' || lyricsMode == 'both');
-      final shouldFetchLyrics = shouldEmbedLyrics || shouldSaveExternalLyrics;
       String? lrcContent;
 
-      if (shouldFetchLyrics) {
+      if (shouldEmbedLyrics || shouldSaveExternalLyrics) {
         try {
-          final durationMs = track.duration * 1000;
-
           final fetchedLrc = await PlatformBridge.getLyricsLRC(
             track.id,
             track.name,
             track.artistName,
             filePath: '',
-            durationMs: durationMs,
+            durationMs: track.duration * 1000,
           );
-
           if (fetchedLrc.isNotEmpty && fetchedLrc != '[instrumental:true]') {
             lrcContent = fetchedLrc;
-            _log.d('Lyrics fetched for FLAC (${fetchedLrc.length} chars)');
+            _log.d('Lyrics fetched for $format (${fetchedLrc.length} chars)');
           } else if (fetchedLrc == '[instrumental:true]') {
             _log.d('Track is instrumental, skipping lyrics handling');
-          } else {
-            _log.d('No lyrics returned for FLAC download');
           }
         } catch (e) {
-          _log.w('Failed to fetch lyrics for FLAC: $e');
+          _log.w('Failed to fetch lyrics for $format: $e');
         }
       }
 
-      if (shouldEmbedLyrics) {
-        if (lrcContent != null) {
-          metadata['LYRICS'] = lrcContent;
-          metadata['UNSYNCEDLYRICS'] = lrcContent;
-          _log.d('Lyrics added to FLAC metadata');
-        } else {
-          _log.d('No lyrics available for FLAC embedding');
-        }
-      } else {
+      if (shouldEmbedLyrics && lrcContent != null) {
+        metadata['LYRICS'] = lrcContent;
+        if (isFlac || isMp3) metadata['UNSYNCEDLYRICS'] = lrcContent;
+      } else if (isFlac && !shouldEmbedLyrics) {
         metadata['LYRICS'] = '';
         metadata['UNSYNCEDLYRICS'] = '';
-        _log.d(
-          'Lyrics embedding disabled by settings, skipping lyric embedding',
-        );
       }
 
       if (writeExternalLrc && shouldSaveExternalLyrics && lrcContent != null) {
         try {
-          final replacedPath = flacPath.replaceAll(RegExp(r'\.[^.]+$'), '.lrc');
-          final lrcPath = replacedPath == flacPath
-              ? '$flacPath.lrc'
-              : replacedPath;
-          await File(lrcPath).writeAsString(lrcContent);
-          _log.d('External LRC file saved: $lrcPath');
+          final lrcPath = filePath.replaceAll(RegExp(r'\.[^.]+$'), '.lrc');
+          final safeLrcPath = lrcPath == filePath ? '$filePath.lrc' : lrcPath;
+          await File(safeLrcPath).writeAsString(lrcContent);
+          _log.d('External LRC file saved: $safeLrcPath');
         } catch (e) {
-          _log.w('Failed to save external LRC file for FLAC: $e');
+          _log.w('Failed to save external LRC file for $format: $e');
         }
       }
 
-      _log.d('Generating tags for FLAC: $metadata');
-
-      final result = await FFmpegService.embedMetadata(
-        flacPath: flacPath,
-        coverPath: coverPath != null && await File(coverPath).exists()
-            ? coverPath
-            : null,
-        metadata: metadata,
-        artistTagMode: settings.artistTagMode,
-      );
-
-      if (result != null) {
-        _log.d('Metadata and cover embedded via FFmpeg');
-      } else {
-        _log.w('FFmpeg metadata/cover embed failed');
-      }
-
-      // After FFmpeg embed, fix split artist tags using native FLAC writer.
-      // FFmpeg deduplicates repeated metadata keys, so multiple ARTIST entries
-      // collapse into one. The Go FLAC writer rewrites them properly.
-      if (settings.artistTagMode == artistTagModeSplitVorbis) {
+      // ── ReplayGain (MP3/Opus: scan before FFmpeg, add to metadata) ─
+      if (settings.embedReplayGain && !isFlac) {
         try {
-          await PlatformBridge.rewriteSplitArtistTags(
-            flacPath,
-            track.artistName,
-            albumArtist,
-          );
-          _log.d('Split artist tags rewritten via native FLAC writer');
-        } catch (e) {
-          _log.w('Failed to rewrite split artist tags: $e');
-        }
-      }
-
-      // ReplayGain: scan loudness and embed tags via native FLAC writer.
-      if (settings.embedReplayGain) {
-        try {
-          final rgResult = await FFmpegService.scanReplayGain(flacPath);
-          if (rgResult != null) {
-            await PlatformBridge.editFileMetadata(flacPath, {
-              'replaygain_track_gain': rgResult.trackGain,
-              'replaygain_track_peak': rgResult.trackPeak,
-            });
-            _log.d(
-              'ReplayGain tags embedded: gain=${rgResult.trackGain}, peak=${rgResult.trackPeak}',
-            );
-            // Store for album gain computation after all album tracks complete.
-            _storeTrackReplayGainForAlbum(track, flacPath, rgResult);
-          } else {
-            _log.w('ReplayGain scan returned no result');
-          }
-        } catch (e) {
-          _log.w('Failed to scan/embed ReplayGain: $e');
-        }
-      }
-
-      if (coverPath != null) {
-        try {
-          final coverFile = File(coverPath);
-          if (await coverFile.exists()) {
-            await coverFile.delete();
-          }
-        } catch (e) {
-          _log.w('Failed to cleanup cover file: $e');
-        }
-      }
-    } catch (e) {
-      _log.e('Failed to embed metadata: $e');
-    }
-  }
-
-  Future<void> _embedMetadataToMp3(
-    String mp3Path,
-    Track track, {
-    String? genre,
-    String? label,
-    String? copyright,
-    String? downloadService,
-  }) async {
-    final settings = ref.read(settingsProvider);
-    if (!settings.embedMetadata) {
-      _log.d('Metadata embedding disabled, skipping MP3 metadata/cover embed');
-      return;
-    }
-
-    String? coverPath;
-    var coverUrl = normalizeRemoteHttpUrl(track.coverUrl);
-    if (coverUrl != null && coverUrl.isNotEmpty) {
-      try {
-        if (settings.maxQualityCover) {
-          coverUrl = _upgradeToMaxQualityCover(coverUrl);
-          _log.d('Cover URL upgraded to max quality for MP3: $coverUrl');
-        }
-
-        final tempDir = await getTemporaryDirectory();
-        final uniqueId =
-            '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(10000)}';
-        coverPath = '${tempDir.path}/cover_mp3_$uniqueId.jpg';
-
-        final httpClient = HttpClient();
-        final request = await httpClient.getUrl(Uri.parse(coverUrl));
-        final response = await request.close();
-        if (response.statusCode == 200) {
-          final file = File(coverPath);
-          final sink = file.openWrite();
-          await response.pipe(sink);
-          await sink.close();
-          _log.d('Cover downloaded for MP3: $coverPath');
-        } else {
-          _log.w(
-            'Failed to download cover for MP3: HTTP ${response.statusCode}',
-          );
-          coverPath = null;
-        }
-        httpClient.close();
-      } catch (e) {
-        _log.e('Failed to download cover for MP3: $e');
-        coverPath = null;
-      }
-    }
-
-    try {
-      final metadata = <String, String>{
-        'TITLE': track.name,
-        'ARTIST': track.artistName,
-        'ALBUM': track.albumName,
-      };
-
-      final albumArtist = _resolveAlbumArtistForMetadata(track, settings);
-      metadata['ALBUMARTIST'] = albumArtist;
-
-      if (track.trackNumber != null && track.trackNumber! > 0) {
-        metadata['TRACKNUMBER'] = track.trackNumber.toString();
-        metadata['TRACK'] = track.trackNumber.toString();
-      }
-
-      if (track.discNumber != null && track.discNumber! > 0) {
-        metadata['DISCNUMBER'] = track.discNumber.toString();
-        metadata['DISC'] = track.discNumber.toString();
-      }
-
-      if (track.releaseDate != null) {
-        metadata['DATE'] = track.releaseDate!;
-        metadata['YEAR'] = track.releaseDate!.split('-').first;
-      }
-
-      if (track.isrc != null) {
-        metadata['ISRC'] = track.isrc!;
-      }
-
-      if (genre != null && genre.isNotEmpty) {
-        metadata['GENRE'] = genre;
-        _log.d('Adding GENRE to MP3: $genre');
-      }
-      if (label != null && label.isNotEmpty) {
-        metadata['ORGANIZATION'] = label;
-        _log.d('Adding ORGANIZATION (label) to MP3: $label');
-      }
-      if (copyright != null && copyright.isNotEmpty) {
-        metadata['COPYRIGHT'] = copyright;
-        _log.d('Adding COPYRIGHT to MP3: $copyright');
-      }
-
-      _log.d('MP3 Metadata map content: $metadata');
-
-      final lyricsMode = settings.lyricsMode;
-      final mp3ExtState = ref.read(extensionProvider);
-      final mp3SkipLyrics = _shouldSkipLyrics(
-        mp3ExtState,
-        track.source,
-        downloadService,
-      );
-      final shouldEmbed =
-          !mp3SkipLyrics && (lyricsMode == 'embed' || lyricsMode == 'both');
-      final shouldSaveExternal =
-          !mp3SkipLyrics && (lyricsMode == 'external' || lyricsMode == 'both');
-
-      if (settings.embedLyrics && (shouldEmbed || shouldSaveExternal)) {
-        try {
-          final durationMs = track.duration * 1000;
-
-          final lrcContent = await PlatformBridge.getLyricsLRC(
-            track.id,
-            track.name,
-            track.artistName,
-            filePath: '',
-            durationMs: durationMs,
-          );
-
-          if (lrcContent.isNotEmpty) {
-            if (shouldEmbed) {
-              metadata['LYRICS'] = lrcContent;
-              metadata['UNSYNCEDLYRICS'] = lrcContent;
-              _log.d(
-                'Lyrics fetched for MP3 embedding (${lrcContent.length} chars)',
-              );
-            }
-
-            if (shouldSaveExternal) {
-              try {
-                final lrcPath = mp3Path.replaceAll(
-                  RegExp(r'\.mp3$', caseSensitive: false),
-                  '.lrc',
-                );
-                await File(lrcPath).writeAsString(lrcContent);
-                _log.d('External LRC file saved: $lrcPath');
-              } catch (e) {
-                _log.w('Failed to save external LRC file: $e');
-              }
-            }
-          }
-        } catch (e) {
-          _log.w('Failed to fetch lyrics for MP3: $e');
-        }
-      }
-
-      _log.d('Embedding tags to MP3: $metadata');
-
-      // ReplayGain: scan loudness and add to metadata before FFmpeg embed.
-      if (settings.embedReplayGain) {
-        try {
-          final rgResult = await FFmpegService.scanReplayGain(mp3Path);
+          final rgResult = await FFmpegService.scanReplayGain(filePath);
           if (rgResult != null) {
             metadata['REPLAYGAIN_TRACK_GAIN'] = rgResult.trackGain;
             metadata['REPLAYGAIN_TRACK_PEAK'] = rgResult.trackPeak;
             _log.d(
-              'ReplayGain added to MP3 metadata: gain=${rgResult.trackGain}, peak=${rgResult.trackPeak}',
+              'ReplayGain for $format: gain=${rgResult.trackGain}, peak=${rgResult.trackPeak}',
             );
-            // Store for album gain computation after all album tracks complete.
-            _storeTrackReplayGainForAlbum(track, mp3Path, rgResult);
+            _storeTrackReplayGainForAlbum(track, filePath, rgResult);
           }
         } catch (e) {
-          _log.w('Failed to scan ReplayGain for MP3: $e');
+          _log.w('Failed to scan ReplayGain for $format: $e');
         }
       }
 
-      final result = await FFmpegService.embedMetadataToMp3(
-        mp3Path: mp3Path,
-        coverPath: coverPath != null && await File(coverPath).exists()
-            ? coverPath
-            : null,
-        metadata: metadata,
-      );
+      // ── FFmpeg embed (format-specific) ──────────────────────────────
+      final validCover = coverPath != null && await File(coverPath).exists()
+          ? coverPath
+          : null;
 
-      if (result != null) {
-        _log.d('Metadata, lyrics, and cover embedded to MP3 via FFmpeg');
+      String? ffmpegResult;
+      if (isFlac) {
+        ffmpegResult = await FFmpegService.embedMetadata(
+          flacPath: filePath,
+          coverPath: validCover,
+          metadata: metadata,
+          artistTagMode: settings.artistTagMode,
+        );
+      } else if (isMp3) {
+        ffmpegResult = await FFmpegService.embedMetadataToMp3(
+          mp3Path: filePath,
+          coverPath: validCover,
+          metadata: metadata,
+        );
       } else {
-        _log.w('FFmpeg MP3 metadata/cover embed failed');
+        ffmpegResult = await FFmpegService.embedMetadataToOpus(
+          opusPath: filePath,
+          coverPath: validCover,
+          metadata: metadata,
+          artistTagMode: settings.artistTagMode,
+        );
       }
 
-      if (coverPath != null) {
-        try {
-          final coverFile = File(coverPath);
-          if (await coverFile.exists()) {
-            await coverFile.delete();
+      if (ffmpegResult != null) {
+        _log.d('Metadata embedded to $format via FFmpeg');
+      } else {
+        _log.w('FFmpeg $format metadata embed failed');
+      }
+
+      // ── FLAC post-processing ────────────────────────────────────────
+      if (isFlac) {
+        if (settings.artistTagMode == artistTagModeSplitVorbis) {
+          try {
+            await PlatformBridge.rewriteSplitArtistTags(
+              filePath,
+              track.artistName,
+              albumArtist,
+            );
+            _log.d('Split artist tags rewritten via native FLAC writer');
+          } catch (e) {
+            _log.w('Failed to rewrite split artist tags: $e');
           }
-        } catch (e) {
-          _log.w('Failed to cleanup MP3 cover file: $e');
-        }
-      }
-    } catch (e) {
-      _log.e('Failed to embed metadata to MP3: $e');
-    }
-  }
-
-  Future<void> _embedMetadataToOpus(
-    String opusPath,
-    Track track, {
-    String? genre,
-    String? label,
-    String? copyright,
-    String? downloadService,
-  }) async {
-    final settings = ref.read(settingsProvider);
-    if (!settings.embedMetadata) {
-      _log.d('Metadata embedding disabled, skipping Opus metadata/cover embed');
-      return;
-    }
-
-    String? coverPath;
-    var coverUrl = normalizeRemoteHttpUrl(track.coverUrl);
-    if (coverUrl != null && coverUrl.isNotEmpty) {
-      try {
-        if (settings.maxQualityCover) {
-          coverUrl = _upgradeToMaxQualityCover(coverUrl);
-          _log.d('Cover URL upgraded to max quality for Opus: $coverUrl');
         }
 
-        final tempDir = await getTemporaryDirectory();
-        final uniqueId =
-            '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(10000)}';
-        coverPath = '${tempDir.path}/cover_opus_$uniqueId.jpg';
-
-        final httpClient = HttpClient();
-        final request = await httpClient.getUrl(Uri.parse(coverUrl));
-        final response = await request.close();
-        if (response.statusCode == 200) {
-          final file = File(coverPath);
-          final sink = file.openWrite();
-          await response.pipe(sink);
-          await sink.close();
-          _log.d('Cover downloaded for Opus: $coverPath');
-        } else {
-          _log.w(
-            'Failed to download cover for Opus: HTTP ${response.statusCode}',
-          );
-          coverPath = null;
-        }
-        httpClient.close();
-      } catch (e) {
-        _log.e('Failed to download cover for Opus: $e');
-        coverPath = null;
-      }
-    }
-
-    try {
-      final metadata = <String, String>{
-        'TITLE': track.name,
-        'ARTIST': track.artistName,
-        'ALBUM': track.albumName,
-      };
-
-      final albumArtist = _resolveAlbumArtistForMetadata(track, settings);
-      metadata['ALBUMARTIST'] = albumArtist;
-
-      if (track.trackNumber != null && track.trackNumber! > 0) {
-        metadata['TRACKNUMBER'] = track.trackNumber.toString();
-      }
-
-      if (track.discNumber != null && track.discNumber! > 0) {
-        metadata['DISCNUMBER'] = track.discNumber.toString();
-      }
-
-      if (track.releaseDate != null) {
-        metadata['DATE'] = track.releaseDate!;
-      }
-
-      if (track.isrc != null) {
-        metadata['ISRC'] = track.isrc!;
-      }
-
-      if (genre != null && genre.isNotEmpty) {
-        metadata['GENRE'] = genre;
-        _log.d('Adding GENRE to Opus: $genre');
-      }
-      if (label != null && label.isNotEmpty) {
-        metadata['ORGANIZATION'] = label;
-        _log.d('Adding ORGANIZATION (label) to Opus: $label');
-      }
-      if (copyright != null && copyright.isNotEmpty) {
-        metadata['COPYRIGHT'] = copyright;
-        _log.d('Adding COPYRIGHT to Opus: $copyright');
-      }
-
-      _log.d('Opus Metadata map content: $metadata');
-
-      final lyricsMode = settings.lyricsMode;
-      final opusExtState = ref.read(extensionProvider);
-      final opusSkipLyrics = _shouldSkipLyrics(
-        opusExtState,
-        track.source,
-        downloadService,
-      );
-      final shouldEmbed =
-          !opusSkipLyrics && (lyricsMode == 'embed' || lyricsMode == 'both');
-      final shouldSaveExternal =
-          !opusSkipLyrics && (lyricsMode == 'external' || lyricsMode == 'both');
-
-      if (settings.embedLyrics && (shouldEmbed || shouldSaveExternal)) {
-        try {
-          final durationMs = track.duration * 1000;
-
-          final lrcContent = await PlatformBridge.getLyricsLRC(
-            track.id,
-            track.name,
-            track.artistName,
-            filePath: '',
-            durationMs: durationMs,
-          );
-
-          if (lrcContent.isNotEmpty) {
-            if (shouldEmbed) {
-              metadata['LYRICS'] = lrcContent;
+        if (settings.embedReplayGain) {
+          try {
+            final rgResult = await FFmpegService.scanReplayGain(filePath);
+            if (rgResult != null) {
+              await PlatformBridge.editFileMetadata(filePath, {
+                'replaygain_track_gain': rgResult.trackGain,
+                'replaygain_track_peak': rgResult.trackPeak,
+              });
               _log.d(
-                'Lyrics fetched for Opus embedding (${lrcContent.length} chars)',
+                'ReplayGain for $format: gain=${rgResult.trackGain}, peak=${rgResult.trackPeak}',
               );
+              _storeTrackReplayGainForAlbum(track, filePath, rgResult);
             }
-
-            if (shouldSaveExternal) {
-              try {
-                final lrcPath = opusPath.replaceAll(
-                  RegExp(r'\.opus$', caseSensitive: false),
-                  '.lrc',
-                );
-                await File(lrcPath).writeAsString(lrcContent);
-                _log.d('External LRC file saved: $lrcPath');
-              } catch (e) {
-                _log.w('Failed to save external LRC file: $e');
-              }
-            }
+          } catch (e) {
+            _log.w('Failed to embed ReplayGain via native writer: $e');
           }
-        } catch (e) {
-          _log.w('Failed to fetch lyrics for Opus: $e');
-        }
-      }
-
-      _log.d('Embedding tags to Opus: $metadata');
-
-      // ReplayGain: scan loudness and add to metadata before FFmpeg embed.
-      if (settings.embedReplayGain) {
-        try {
-          final rgResult = await FFmpegService.scanReplayGain(opusPath);
-          if (rgResult != null) {
-            metadata['REPLAYGAIN_TRACK_GAIN'] = rgResult.trackGain;
-            metadata['REPLAYGAIN_TRACK_PEAK'] = rgResult.trackPeak;
-            _log.d(
-              'ReplayGain added to Opus metadata: gain=${rgResult.trackGain}, peak=${rgResult.trackPeak}',
-            );
-            // Store for album gain computation after all album tracks complete.
-            _storeTrackReplayGainForAlbum(track, opusPath, rgResult);
-          }
-        } catch (e) {
-          _log.w('Failed to scan ReplayGain for Opus: $e');
-        }
-      }
-
-      final result = await FFmpegService.embedMetadataToOpus(
-        opusPath: opusPath,
-        coverPath: coverPath != null && await File(coverPath).exists()
-            ? coverPath
-            : null,
-        metadata: metadata,
-        artistTagMode: settings.artistTagMode,
-      );
-
-      if (result != null) {
-        _log.d('Metadata, lyrics, and cover embedded to Opus via FFmpeg');
-      } else {
-        _log.w('FFmpeg Opus metadata/cover embed failed');
-      }
-
-      if (coverPath != null) {
-        try {
-          final coverFile = File(coverPath);
-          if (await coverFile.exists()) {
-            await coverFile.delete();
-          }
-        } catch (e) {
-          _log.w('Failed to cleanup Opus cover file: $e');
         }
       }
     } catch (e) {
-      _log.e('Failed to embed metadata to Opus: $e');
+      _log.e('Failed to embed metadata to $format: $e');
+    } finally {
+      if (coverPath != null) {
+        try {
+          final coverFile = File(coverPath);
+          if (await coverFile.exists()) await coverFile.delete();
+        } catch (e) {
+          _log.w('Failed to cleanup $format cover file: $e');
+        }
+      }
     }
   }
 
@@ -5057,18 +4686,20 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
                     final backendCopyright = result['copyright'] as String?;
 
                     if (format == 'mp3') {
-                      await _embedMetadataToMp3(
+                      await _embedMetadataToFile(
                         convertedPath,
                         trackToDownload,
+                        format: 'mp3',
                         genre: backendGenre ?? genre,
                         label: backendLabel ?? label,
                         copyright: backendCopyright,
                         downloadService: item.service,
                       );
                     } else {
-                      await _embedMetadataToOpus(
+                      await _embedMetadataToFile(
                         convertedPath,
                         trackToDownload,
+                        format: 'opus',
                         genre: backendGenre ?? genre,
                         label: backendLabel ?? label,
                         copyright: backendCopyright,
@@ -5153,9 +4784,10 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
                       final backendLabel = result['label'] as String?;
                       final backendCopyright = result['copyright'] as String?;
 
-                      await _embedMetadataAndCover(
+                      await _embedMetadataToFile(
                         flacPath,
                         finalTrack,
+                        format: 'flac',
                         genre: backendGenre ?? genre,
                         label: backendLabel ?? label,
                         copyright: backendCopyright,
@@ -5247,18 +4879,20 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
                   final backendCopyright = result['copyright'] as String?;
 
                   if (format == 'mp3') {
-                    await _embedMetadataToMp3(
+                    await _embedMetadataToFile(
                       convertedPath,
                       trackToDownload,
+                      format: 'mp3',
                       genre: backendGenre ?? genre,
                       label: backendLabel ?? label,
                       copyright: backendCopyright,
                       downloadService: item.service,
                     );
                   } else {
-                    await _embedMetadataToOpus(
+                    await _embedMetadataToFile(
                       convertedPath,
                       trackToDownload,
+                      format: 'opus',
                       genre: backendGenre ?? genre,
                       label: backendLabel ?? label,
                       copyright: backendCopyright,
@@ -5327,9 +4961,10 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
                           );
                         }
 
-                        await _embedMetadataAndCover(
+                        await _embedMetadataToFile(
                           flacPath,
                           finalTrack,
+                          format: 'flac',
                           genre: backendGenre ?? genre,
                           label: backendLabel ?? label,
                           copyright: backendCopyright,
@@ -5393,27 +5028,30 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
               final backendCopyright = result['copyright'] as String?;
 
               if (isMp3File) {
-                await _embedMetadataToMp3(
+                await _embedMetadataToFile(
                   tempPath,
                   finalTrack,
+                  format: 'mp3',
                   genre: backendGenre ?? genre,
                   label: backendLabel ?? label,
                   copyright: backendCopyright,
                   downloadService: item.service,
                 );
               } else if (isOpusFile) {
-                await _embedMetadataToOpus(
+                await _embedMetadataToFile(
                   tempPath,
                   finalTrack,
+                  format: 'opus',
                   genre: backendGenre ?? genre,
                   label: backendLabel ?? label,
                   copyright: backendCopyright,
                   downloadService: item.service,
                 );
               } else {
-                await _embedMetadataAndCover(
+                await _embedMetadataToFile(
                   tempPath,
                   finalTrack,
+                  format: 'flac',
                   genre: backendGenre ?? genre,
                   label: backendLabel ?? label,
                   copyright: backendCopyright,
@@ -5476,9 +5114,10 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
             final backendLabel = result['label'] as String?;
             final backendCopyright = result['copyright'] as String?;
 
-            await _embedMetadataAndCover(
+            await _embedMetadataToFile(
               filePath,
               finalTrack,
+              format: 'flac',
               genre: backendGenre ?? genre,
               label: backendLabel ?? label,
               copyright: backendCopyright,

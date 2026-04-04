@@ -164,12 +164,17 @@ jobs:
           path: build/app/outputs/flutter-apk/SpotiFLAC-*.apk
 
   build-ios:
-    runs-on: macos-latest
+    runs-on: macos-15
     needs: get-version # Only depends on version, NOT android build!
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Select Xcode 26.1.1
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.1.1.app
+          xcodebuild -version
 
       - name: Setup Go
         uses: actions/setup-go@v6

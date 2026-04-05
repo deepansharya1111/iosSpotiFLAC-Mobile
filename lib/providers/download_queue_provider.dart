@@ -52,7 +52,9 @@ class DownloadHistoryItem {
   final String? isrc;
   final String? spotifyId;
   final int? trackNumber;
+  final int? totalTracks;
   final int? discNumber;
+  final int? totalDiscs;
   final int? duration;
   final String? releaseDate;
   final String? quality;
@@ -81,7 +83,9 @@ class DownloadHistoryItem {
     this.isrc,
     this.spotifyId,
     this.trackNumber,
+    this.totalTracks,
     this.discNumber,
+    this.totalDiscs,
     this.duration,
     this.releaseDate,
     this.quality,
@@ -111,7 +115,9 @@ class DownloadHistoryItem {
     'isrc': isrc,
     'spotifyId': spotifyId,
     'trackNumber': trackNumber,
+    'totalTracks': totalTracks,
     'discNumber': discNumber,
+    'totalDiscs': totalDiscs,
     'duration': duration,
     'releaseDate': releaseDate,
     'quality': quality,
@@ -142,7 +148,9 @@ class DownloadHistoryItem {
         isrc: json['isrc'] as String?,
         spotifyId: json['spotifyId'] as String?,
         trackNumber: json['trackNumber'] as int?,
+        totalTracks: json['totalTracks'] as int?,
         discNumber: json['discNumber'] as int?,
+        totalDiscs: json['totalDiscs'] as int?,
         duration: json['duration'] as int?,
         releaseDate: json['releaseDate'] as String?,
         quality: json['quality'] as String?,
@@ -169,7 +177,9 @@ class DownloadHistoryItem {
     String? isrc,
     String? spotifyId,
     int? trackNumber,
+    int? totalTracks,
     int? discNumber,
+    int? totalDiscs,
     int? duration,
     String? releaseDate,
     String? quality,
@@ -198,7 +208,9 @@ class DownloadHistoryItem {
       isrc: isrc ?? this.isrc,
       spotifyId: spotifyId ?? this.spotifyId,
       trackNumber: trackNumber ?? this.trackNumber,
+      totalTracks: totalTracks ?? this.totalTracks,
       discNumber: discNumber ?? this.discNumber,
+      totalDiscs: totalDiscs ?? this.totalDiscs,
       duration: duration ?? this.duration,
       releaseDate: releaseDate ?? this.releaseDate,
       quality: quality ?? this.quality,
@@ -586,15 +598,31 @@ class DownloadHistoryNotifier extends Notifier<DownloadHistoryState> {
     if (hasResolvedSpecs && !isPlaceholderQualityLabel(item.quality)) {
       final needsComposerBackfill =
           normalizeOptionalString(item.composer) == null;
-      return needsComposerBackfill;
+      final needsTrackNumberBackfill = item.trackNumber == null;
+      final needsTotalTracksBackfill = item.totalTracks == null;
+      final needsDiscNumberBackfill = item.discNumber == null;
+      final needsTotalDiscsBackfill = item.totalDiscs == null;
+      return needsComposerBackfill ||
+          needsTrackNumberBackfill ||
+          needsTotalTracksBackfill ||
+          needsDiscNumberBackfill ||
+          needsTotalDiscsBackfill;
     }
 
     final needsComposerBackfill =
         normalizeOptionalString(item.composer) == null;
+    final needsTrackNumberBackfill = item.trackNumber == null;
+    final needsTotalTracksBackfill = item.totalTracks == null;
+    final needsDiscNumberBackfill = item.discNumber == null;
+    final needsTotalDiscsBackfill = item.totalDiscs == null;
     return needsLosslessSpecProbe ||
         isPlaceholderQualityLabel(item.quality) ||
         normalizeOptionalString(item.quality) == null ||
-        needsComposerBackfill;
+        needsComposerBackfill ||
+        needsTrackNumberBackfill ||
+        needsTotalTracksBackfill ||
+        needsDiscNumberBackfill ||
+        needsTotalDiscsBackfill;
   }
 
   Future<Map<String, dynamic>?> _probeAudioMetadata(
@@ -619,11 +647,19 @@ class DownloadHistoryNotifier extends Notifier<DownloadHistoryState> {
         storedQuality: fallbackQuality,
       );
       final composer = normalizeOptionalString(result['composer']?.toString());
+      final trackNumber = _readPositiveInt(result['track_number']);
+      final totalTracks = _readPositiveInt(result['total_tracks']);
+      final discNumber = _readPositiveInt(result['disc_number']);
+      final totalDiscs = _readPositiveInt(result['total_discs']);
 
       if (quality == null &&
           bitDepth == null &&
           sampleRate == null &&
-          composer == null) {
+          composer == null &&
+          trackNumber == null &&
+          totalTracks == null &&
+          discNumber == null &&
+          totalDiscs == null) {
         return null;
       }
 
@@ -632,6 +668,10 @@ class DownloadHistoryNotifier extends Notifier<DownloadHistoryState> {
         'bitDepth': bitDepth,
         'sampleRate': sampleRate,
         'composer': composer,
+        'trackNumber': trackNumber,
+        'totalTracks': totalTracks,
+        'discNumber': discNumber,
+        'totalDiscs': totalDiscs,
       };
     } catch (e) {
       _historyLog.d('Audio metadata probe failed for $filePath: $e');
@@ -701,6 +741,10 @@ class DownloadHistoryNotifier extends Notifier<DownloadHistoryState> {
         final resolvedComposer = normalizeOptionalString(
           probed['composer'] as String?,
         );
+        final resolvedTrackNumber = probed['trackNumber'] as int?;
+        final resolvedTotalTracks = probed['totalTracks'] as int?;
+        final resolvedDiscNumber = probed['discNumber'] as int?;
+        final resolvedTotalDiscs = probed['totalDiscs'] as int?;
 
         final qualityChanged =
             resolvedQuality != null && resolvedQuality != item.quality;
@@ -710,11 +754,25 @@ class DownloadHistoryNotifier extends Notifier<DownloadHistoryState> {
             resolvedSampleRate != null && resolvedSampleRate != item.sampleRate;
         final composerChanged =
             resolvedComposer != null && resolvedComposer != item.composer;
+        final trackNumberChanged =
+            resolvedTrackNumber != null &&
+            resolvedTrackNumber != item.trackNumber;
+        final totalTracksChanged =
+            resolvedTotalTracks != null &&
+            resolvedTotalTracks != item.totalTracks;
+        final discNumberChanged =
+            resolvedDiscNumber != null && resolvedDiscNumber != item.discNumber;
+        final totalDiscsChanged =
+            resolvedTotalDiscs != null && resolvedTotalDiscs != item.totalDiscs;
 
         if (!qualityChanged &&
             !bitDepthChanged &&
             !sampleRateChanged &&
-            !composerChanged) {
+            !composerChanged &&
+            !trackNumberChanged &&
+            !totalTracksChanged &&
+            !discNumberChanged &&
+            !totalDiscsChanged) {
           continue;
         }
 
@@ -723,6 +781,10 @@ class DownloadHistoryNotifier extends Notifier<DownloadHistoryState> {
           bitDepth: resolvedBitDepth,
           sampleRate: resolvedSampleRate,
           composer: resolvedComposer,
+          trackNumber: resolvedTrackNumber,
+          totalTracks: resolvedTotalTracks,
+          discNumber: resolvedDiscNumber,
+          totalDiscs: resolvedTotalDiscs,
         );
         updatedItems ??= [...items];
         updatedItems[index] = updated;
@@ -768,6 +830,10 @@ class DownloadHistoryNotifier extends Notifier<DownloadHistoryState> {
     final mergedItem = existing == null
         ? item
         : item.copyWith(
+            trackNumber: item.trackNumber ?? existing.trackNumber,
+            totalTracks: item.totalTracks ?? existing.totalTracks,
+            discNumber: item.discNumber ?? existing.discNumber,
+            totalDiscs: item.totalDiscs ?? existing.totalDiscs,
             genre:
                 normalizeOptionalString(item.genre) ??
                 normalizeOptionalString(existing.genre),
@@ -840,6 +906,11 @@ class DownloadHistoryNotifier extends Notifier<DownloadHistoryState> {
     String? quality,
     int? bitDepth,
     int? sampleRate,
+    int? trackNumber,
+    int? totalTracks,
+    int? discNumber,
+    int? totalDiscs,
+    String? composer,
   }) async {
     final index = state.items.indexWhere((item) => item.id == id);
     if (index < 0) return;
@@ -849,23 +920,28 @@ class DownloadHistoryNotifier extends Notifier<DownloadHistoryState> {
       quality: quality,
       bitDepth: bitDepth,
       sampleRate: sampleRate,
+      trackNumber: trackNumber,
+      totalTracks: totalTracks,
+      discNumber: discNumber,
+      totalDiscs: totalDiscs,
+      composer: composer,
     );
 
     if (updated.quality == current.quality &&
         updated.bitDepth == current.bitDepth &&
-        updated.sampleRate == current.sampleRate) {
+        updated.sampleRate == current.sampleRate &&
+        updated.trackNumber == current.trackNumber &&
+        updated.totalTracks == current.totalTracks &&
+        updated.discNumber == current.discNumber &&
+        updated.totalDiscs == current.totalDiscs &&
+        updated.composer == current.composer) {
       return;
     }
 
     final updatedItems = [...state.items];
     updatedItems[index] = updated;
     state = state.copyWith(items: updatedItems);
-    await _db.updateAudioMetadata(
-      id,
-      newQuality: quality,
-      newBitDepth: bitDepth,
-      newSampleRate: sampleRate,
-    );
+    await _db.upsert(updated.toJson());
   }
 
   Future<void> updateMetadataForItem({
@@ -876,7 +952,9 @@ class DownloadHistoryNotifier extends Notifier<DownloadHistoryState> {
     String? albumArtist,
     String? isrc,
     int? trackNumber,
+    int? totalTracks,
     int? discNumber,
+    int? totalDiscs,
     String? releaseDate,
     String? genre,
     String? composer,
@@ -894,7 +972,9 @@ class DownloadHistoryNotifier extends Notifier<DownloadHistoryState> {
       albumArtist: albumArtist,
       isrc: isrc,
       trackNumber: trackNumber,
+      totalTracks: totalTracks,
       discNumber: discNumber,
+      totalDiscs: totalDiscs,
       releaseDate: releaseDate,
       genre: genre,
       composer: composer,
@@ -5534,9 +5614,11 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
                   trackNumber: (backendTrackNum != null && backendTrackNum > 0)
                       ? backendTrackNum
                       : trackToDownload.trackNumber,
+                  totalTracks: trackToDownload.totalTracks,
                   discNumber: (backendDiscNum != null && backendDiscNum > 0)
                       ? backendDiscNum
                       : trackToDownload.discNumber,
+                  totalDiscs: trackToDownload.totalDiscs,
                   duration: trackToDownload.duration,
                   releaseDate: (backendYear != null && backendYear.isNotEmpty)
                       ? backendYear

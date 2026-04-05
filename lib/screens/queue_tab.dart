@@ -2963,15 +2963,23 @@ class _QueueTabState extends ConsumerState<QueueTab> {
   }
 
   Future<void> _navigateToHistoryMetadataScreen(
-    DownloadHistoryItem item,
-  ) async {
+    DownloadHistoryItem item, {
+    List<DownloadHistoryItem>? navigationItems,
+    int? navigationIndex,
+  }) async {
     final navigator = Navigator.of(context);
     _precacheCover(item.coverUrl);
     _searchFocusNode.unfocus();
     final beforeModTime = await _readFileModTimeMillis(item.filePath);
     if (!mounted) return;
     final result = await navigator.push(
-      slidePageRoute<bool>(page: TrackMetadataScreen(item: item)),
+      slidePageRoute<bool>(
+        page: TrackMetadataScreen(
+          item: item,
+          historyNavigationItems: navigationItems,
+          navigationIndex: navigationIndex,
+        ),
+      ),
     );
     _searchFocusNode.unfocus();
     if (result == true) {
@@ -2988,11 +2996,21 @@ class _QueueTabState extends ConsumerState<QueueTab> {
     );
   }
 
-  void _navigateToLocalMetadataScreen(LocalLibraryItem item) {
+  void _navigateToLocalMetadataScreen(
+    LocalLibraryItem item, {
+    List<LocalLibraryItem>? navigationItems,
+    int? navigationIndex,
+  }) {
     _searchFocusNode.unfocus();
     Navigator.push(
       context,
-      slidePageRoute<void>(page: TrackMetadataScreen(localItem: item)),
+      slidePageRoute<void>(
+        page: TrackMetadataScreen(
+          localItem: item,
+          localNavigationItems: navigationItems,
+          navigationIndex: navigationIndex,
+        ),
+      ),
     ).then((_) => _searchFocusNode.unfocus());
   }
 
@@ -4227,6 +4245,25 @@ class _QueueTabState extends ConsumerState<QueueTab> {
     final filteredUnifiedItems = filterData.filteredUnifiedItems;
     final totalTrackCount = filterData.totalTrackCount;
     final totalAlbumCount = filterData.totalAlbumCount;
+    final downloadedNavigationItems = <DownloadHistoryItem>[];
+    final downloadedNavigationIndexByUnifiedId = <String, int>{};
+    final localNavigationItems = <LocalLibraryItem>[];
+    final localNavigationIndexByUnifiedId = <String, int>{};
+
+    for (final item in filteredUnifiedItems) {
+      final historyItem = item.historyItem;
+      if (historyItem != null) {
+        downloadedNavigationIndexByUnifiedId[item.id] =
+            downloadedNavigationItems.length;
+        downloadedNavigationItems.add(historyItem);
+      }
+
+      final localItem = item.localItem;
+      if (localItem != null) {
+        localNavigationIndexByUnifiedId[item.id] = localNavigationItems.length;
+        localNavigationItems.add(localItem);
+      }
+    }
 
     return CustomScrollView(
       slivers: [
@@ -4419,12 +4456,26 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                               context,
                               item,
                               colorScheme,
+                              downloadedNavigationItems:
+                                  downloadedNavigationItems,
+                              downloadedNavigationIndex:
+                                  downloadedNavigationIndexByUnifiedId[item.id],
+                              localNavigationItems: localNavigationItems,
+                              localNavigationIndex:
+                                  localNavigationIndexByUnifiedId[item.id],
                             ),
                           ),
                           child: _buildUnifiedGridItem(
                             context,
                             item,
                             colorScheme,
+                            downloadedNavigationItems:
+                                downloadedNavigationItems,
+                            downloadedNavigationIndex:
+                                downloadedNavigationIndexByUnifiedId[item.id],
+                            localNavigationItems: localNavigationItems,
+                            localNavigationIndex:
+                                localNavigationIndexByUnifiedId[item.id],
                           ),
                         ),
                       );
@@ -4472,12 +4523,25 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                             context,
                             item,
                             colorScheme,
+                            downloadedNavigationItems:
+                                downloadedNavigationItems,
+                            downloadedNavigationIndex:
+                                downloadedNavigationIndexByUnifiedId[item.id],
+                            localNavigationItems: localNavigationItems,
+                            localNavigationIndex:
+                                localNavigationIndexByUnifiedId[item.id],
                           ),
                         ),
                         child: _buildUnifiedLibraryItem(
                           context,
                           item,
                           colorScheme,
+                          downloadedNavigationItems: downloadedNavigationItems,
+                          downloadedNavigationIndex:
+                              downloadedNavigationIndexByUnifiedId[item.id],
+                          localNavigationItems: localNavigationItems,
+                          localNavigationIndex:
+                              localNavigationIndexByUnifiedId[item.id],
                         ),
                       ),
                     );
@@ -4540,6 +4604,12 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                           context,
                           item,
                           colorScheme,
+                          downloadedNavigationItems: downloadedNavigationItems,
+                          downloadedNavigationIndex:
+                              downloadedNavigationIndexByUnifiedId[item.id],
+                          localNavigationItems: localNavigationItems,
+                          localNavigationIndex:
+                              localNavigationIndexByUnifiedId[item.id],
                         ),
                       );
                     }, childCount: filteredUnifiedItems.length),
@@ -4554,6 +4624,12 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                         context,
                         item,
                         colorScheme,
+                        downloadedNavigationItems: downloadedNavigationItems,
+                        downloadedNavigationIndex:
+                            downloadedNavigationIndexByUnifiedId[item.id],
+                        localNavigationItems: localNavigationItems,
+                        localNavigationIndex:
+                            localNavigationIndexByUnifiedId[item.id],
                       ),
                     );
                   }, childCount: filteredUnifiedItems.length),
@@ -6609,8 +6685,12 @@ class _QueueTabState extends ConsumerState<QueueTab> {
   Widget _buildUnifiedLibraryItem(
     BuildContext context,
     UnifiedLibraryItem item,
-    ColorScheme colorScheme,
-  ) {
+    ColorScheme colorScheme, {
+    required List<DownloadHistoryItem> downloadedNavigationItems,
+    required int? downloadedNavigationIndex,
+    required List<LocalLibraryItem> localNavigationItems,
+    required int? localNavigationIndex,
+  }) {
     final fileExistsListenable = _fileExistsListenable(item.filePath);
     final isSelected = _selectedIds.contains(item.id);
     final date = item.addedAt;
@@ -6640,9 +6720,17 @@ class _QueueTabState extends ConsumerState<QueueTab> {
           onTap: _isSelectionMode
               ? () => _toggleSelection(item.id)
               : isDownloaded
-              ? () => _navigateToHistoryMetadataScreen(item.historyItem!)
+              ? () => _navigateToHistoryMetadataScreen(
+                  item.historyItem!,
+                  navigationItems: downloadedNavigationItems,
+                  navigationIndex: downloadedNavigationIndex,
+                )
               : item.localItem != null
-              ? () => _navigateToLocalMetadataScreen(item.localItem!)
+              ? () => _navigateToLocalMetadataScreen(
+                  item.localItem!,
+                  navigationItems: localNavigationItems,
+                  navigationIndex: localNavigationIndex,
+                )
               : () => _openFile(
                   item.filePath,
                   title: item.trackName,
@@ -6816,8 +6904,12 @@ class _QueueTabState extends ConsumerState<QueueTab> {
   Widget _buildUnifiedGridItem(
     BuildContext context,
     UnifiedLibraryItem item,
-    ColorScheme colorScheme,
-  ) {
+    ColorScheme colorScheme, {
+    required List<DownloadHistoryItem> downloadedNavigationItems,
+    required int? downloadedNavigationIndex,
+    required List<LocalLibraryItem> localNavigationItems,
+    required int? localNavigationIndex,
+  }) {
     final fileExistsListenable = _fileExistsListenable(item.filePath);
     final isSelected = _selectedIds.contains(item.id);
     final isDownloaded = item.source == LibraryItemSource.downloaded;
@@ -6826,9 +6918,17 @@ class _QueueTabState extends ConsumerState<QueueTab> {
       onTap: _isSelectionMode
           ? () => _toggleSelection(item.id)
           : isDownloaded
-          ? () => _navigateToHistoryMetadataScreen(item.historyItem!)
+          ? () => _navigateToHistoryMetadataScreen(
+              item.historyItem!,
+              navigationItems: downloadedNavigationItems,
+              navigationIndex: downloadedNavigationIndex,
+            )
           : item.localItem != null
-          ? () => _navigateToLocalMetadataScreen(item.localItem!)
+          ? () => _navigateToLocalMetadataScreen(
+              item.localItem!,
+              navigationItems: localNavigationItems,
+              navigationIndex: localNavigationIndex,
+            )
           : () => _openFile(
               item.filePath,
               title: item.trackName,

@@ -1443,7 +1443,13 @@ class _HomeTabState extends ConsumerState<HomeTab>
                   button: true,
                   label: 'Open track ${item.trackName} by ${item.artistName}',
                   child: GestureDetector(
-                    onTap: () => _navigateToMetadataScreen(item),
+                    onTap: () => _navigateToMetadataScreen(
+                      item,
+                      navigationItems: items
+                          .take(itemCount)
+                          .toList(growable: false),
+                      navigationIndex: index,
+                    ),
                     child: Container(
                       width: coverSize,
                       margin: const EdgeInsets.only(right: 12),
@@ -2217,7 +2223,11 @@ class _HomeTabState extends ConsumerState<HomeTab>
     }
   }
 
-  Future<void> _navigateToMetadataScreen(DownloadHistoryItem item) async {
+  Future<void> _navigateToMetadataScreen(
+    DownloadHistoryItem item, {
+    List<DownloadHistoryItem>? navigationItems,
+    int? navigationIndex,
+  }) async {
     final navigator = Navigator.of(context);
     _precacheCover(item.coverUrl);
     final beforeModTime =
@@ -2226,7 +2236,13 @@ class _HomeTabState extends ConsumerState<HomeTab>
         );
     if (!mounted) return;
     final result = await navigator.push(
-      slidePageRoute<bool>(page: TrackMetadataScreen(item: item)),
+      slidePageRoute<bool>(
+        page: TrackMetadataScreen(
+          item: item,
+          historyNavigationItems: navigationItems,
+          navigationIndex: navigationIndex,
+        ),
+      ),
     );
     await DownloadedEmbeddedCoverResolver.scheduleRefreshForPath(
       item.filePath,

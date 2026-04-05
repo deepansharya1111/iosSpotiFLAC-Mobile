@@ -299,7 +299,11 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen> {
     });
   }
 
-  Future<void> _navigateToMetadataScreen(DownloadHistoryItem item) async {
+  Future<void> _navigateToMetadataScreen(
+    DownloadHistoryItem item, {
+    required List<DownloadHistoryItem> navigationItems,
+    required int navigationIndex,
+  }) async {
     final navigator = Navigator.of(context);
     _precacheCover(item.coverUrl);
     final beforeModTime =
@@ -309,7 +313,13 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen> {
     if (!mounted) return;
 
     final result = await navigator.push(
-      slidePageRoute<bool>(page: TrackMetadataScreen(item: item)),
+      slidePageRoute<bool>(
+        page: TrackMetadataScreen(
+          item: item,
+          historyNavigationItems: navigationItems,
+          navigationIndex: navigationIndex,
+        ),
+      ),
     );
     await DownloadedEmbeddedCoverResolver.scheduleRefreshForPath(
       item.filePath,
@@ -691,7 +701,13 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen> {
             key: ValueKey(track.id),
             child: StaggeredListItem(
               index: index,
-              child: _buildTrackItem(context, colorScheme, track),
+              child: _buildTrackItem(
+                context,
+                colorScheme,
+                track,
+                tracks,
+                index,
+              ),
             ),
           );
         }, childCount: tracks.length),
@@ -709,12 +725,19 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen> {
       children.add(_buildDiscSeparator(context, colorScheme, discNumber));
 
       for (final track in discTracks) {
+        final navigationIndex = tracks.indexOf(track);
         children.add(
           KeyedSubtree(
             key: ValueKey(track.id),
             child: StaggeredListItem(
               index: revealIndex++,
-              child: _buildTrackItem(context, colorScheme, track),
+              child: _buildTrackItem(
+                context,
+                colorScheme,
+                track,
+                tracks,
+                navigationIndex,
+              ),
             ),
           ),
         );
@@ -774,6 +797,8 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen> {
     BuildContext context,
     ColorScheme colorScheme,
     DownloadHistoryItem track,
+    List<DownloadHistoryItem> navigationItems,
+    int navigationIndex,
   ) {
     final isSelected = _selectedIds.contains(track.id);
 
@@ -791,7 +816,11 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen> {
           ),
           onTap: _isSelectionMode
               ? () => _toggleSelection(track.id)
-              : () => _navigateToMetadataScreen(track),
+              : () => _navigateToMetadataScreen(
+                  track,
+                  navigationItems: navigationItems,
+                  navigationIndex: navigationIndex,
+                ),
           onLongPress: _isSelectionMode
               ? null
               : () => _enterSelectionMode(track.id),

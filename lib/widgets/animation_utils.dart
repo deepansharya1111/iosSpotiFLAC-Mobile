@@ -93,6 +93,35 @@ Route<T> slidePageRoute<T>({required Widget page}) {
   return MaterialPageRoute<T>(builder: (context) => page);
 }
 
+/// A directional horizontal transition for adjacent content, such as moving
+/// between next/previous items within the same detail context.
+Route<T> adjacentHorizontalPageRoute<T>({
+  required Widget page,
+  required bool fromRight,
+}) {
+  final begin = Offset(fromRight ? 0.22 : -0.22, 0);
+  return PageRouteBuilder<T>(
+    pageBuilder: (context, animation, secondaryAnimation) => page,
+    transitionDuration: const Duration(milliseconds: 240),
+    reverseTransitionDuration: const Duration(milliseconds: 220),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+
+      return SlideTransition(
+        position: Tween<Offset>(begin: begin, end: Offset.zero).animate(curved),
+        child: FadeTransition(
+          opacity: Tween<double>(begin: 0.92, end: 1.0).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
 /// A shimmer effect widget that can wrap skeleton placeholders.
 class ShimmerLoading extends StatefulWidget {
   final Widget child;

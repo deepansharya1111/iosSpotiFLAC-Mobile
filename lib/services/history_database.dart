@@ -31,7 +31,7 @@ class HistoryDatabase {
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onConfigure: (db) async {
         await db.rawQuery('PRAGMA journal_mode = WAL');
         await db.execute('PRAGMA synchronous = NORMAL');
@@ -63,7 +63,9 @@ class HistoryDatabase {
         isrc TEXT,
         spotify_id TEXT,
         track_number INTEGER,
+        total_tracks INTEGER,
         disc_number INTEGER,
+        total_discs INTEGER,
         duration INTEGER,
         release_date TEXT,
         quality TEXT,
@@ -106,6 +108,22 @@ class HistoryDatabase {
       );
       if (!hasComposer) {
         await db.execute('ALTER TABLE history ADD COLUMN composer TEXT');
+      }
+    }
+    if (oldVersion < 5) {
+      final columns = await db.rawQuery('PRAGMA table_info(history)');
+      final hasTotalTracks = columns.any(
+        (row) =>
+            (row['name']?.toString().toLowerCase() ?? '') == 'total_tracks',
+      );
+      final hasTotalDiscs = columns.any(
+        (row) => (row['name']?.toString().toLowerCase() ?? '') == 'total_discs',
+      );
+      if (!hasTotalTracks) {
+        await db.execute('ALTER TABLE history ADD COLUMN total_tracks INTEGER');
+      }
+      if (!hasTotalDiscs) {
+        await db.execute('ALTER TABLE history ADD COLUMN total_discs INTEGER');
       }
     }
   }
@@ -268,7 +286,9 @@ class HistoryDatabase {
       'isrc': json['isrc'],
       'spotify_id': json['spotifyId'],
       'track_number': json['trackNumber'],
+      'total_tracks': json['totalTracks'],
       'disc_number': json['discNumber'],
+      'total_discs': json['totalDiscs'],
       'duration': json['duration'],
       'release_date': json['releaseDate'],
       'quality': json['quality'],
@@ -300,7 +320,9 @@ class HistoryDatabase {
       'isrc': row['isrc'],
       'spotifyId': row['spotify_id'],
       'trackNumber': row['track_number'],
+      'totalTracks': row['total_tracks'],
       'discNumber': row['disc_number'],
+      'totalDiscs': row['total_discs'],
       'duration': row['duration'],
       'releaseDate': row['release_date'],
       'quality': row['quality'],

@@ -24,6 +24,7 @@ import 'package:spotiflac_android/utils/lyrics_metadata_helper.dart';
 import 'package:spotiflac_android/utils/mime_utils.dart';
 import 'package:spotiflac_android/utils/image_cache_utils.dart';
 import 'package:spotiflac_android/utils/string_utils.dart';
+import 'package:spotiflac_android/widgets/animation_utils.dart';
 import 'package:spotiflac_android/widgets/audio_analysis_widget.dart';
 
 final _log = AppLogger('TrackMetadata');
@@ -41,12 +42,35 @@ class _EmbeddedCoverPreviewCacheEntry {
 class TrackMetadataScreen extends ConsumerStatefulWidget {
   final DownloadHistoryItem? item;
   final LocalLibraryItem? localItem;
+  final List<DownloadHistoryItem>? historyNavigationItems;
+  final List<LocalLibraryItem>? localNavigationItems;
+  final int? navigationIndex;
 
-  const TrackMetadataScreen({super.key, this.item, this.localItem})
-    : assert(
-        item != null || localItem != null,
-        'Either item or localItem must be provided',
-      );
+  const TrackMetadataScreen({
+    super.key,
+    this.item,
+    this.localItem,
+    this.historyNavigationItems,
+    this.localNavigationItems,
+    this.navigationIndex,
+  }) : assert(
+         item != null || localItem != null,
+         'Either item or localItem must be provided',
+       ),
+       assert(
+         historyNavigationItems == null || localNavigationItems == null,
+         'Provide only one navigation list type',
+       ),
+       assert(
+         navigationIndex == null ||
+             ((historyNavigationItems != null &&
+                     navigationIndex >= 0 &&
+                     navigationIndex < historyNavigationItems.length) ||
+                 (localNavigationItems != null &&
+                     navigationIndex >= 0 &&
+                     navigationIndex < localNavigationItems.length)),
+         'navigationIndex must be within the provided navigation list',
+       );
 
   @override
   ConsumerState<TrackMetadataScreen> createState() =>
@@ -74,6 +98,7 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
   bool _isConverting = false;
   bool _hasMetadataChanges = false;
   bool _hasLoadedResolvedAudioMetadata = false;
+  bool _isTrackSwipeNavigationInFlight = false;
   Map<String, dynamic>? _editedMetadata;
   String? _embeddedCoverPreviewPath;
   final ScrollController _scrollController = ScrollController();
@@ -327,15 +352,25 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
 
       // Resolve label/copyright from file when the model doesn't carry them
       // (e.g. local library items, or download history items without these fields).
+      final resolvedTrackNumber = _readPositiveInt(metadata['track_number']);
       final resolvedTotalTracks = _readPositiveInt(metadata['total_tracks']);
+      final resolvedDiscNumber = _readPositiveInt(metadata['disc_number']);
       final resolvedTotalDiscs = _readPositiveInt(metadata['total_discs']);
       final resolvedComposer = metadata['composer']?.toString();
       final resolvedLabel = metadata['label']?.toString();
       final resolvedCopyright = metadata['copyright']?.toString();
+      final needsTrackNumber =
+          resolvedTrackNumber != null &&
+          resolvedTrackNumber > 0 &&
+          trackNumber == null;
       final needsTotalTracks =
           resolvedTotalTracks != null &&
           resolvedTotalTracks > 0 &&
           totalTracks == null;
+      final needsDiscNumber =
+          resolvedDiscNumber != null &&
+          resolvedDiscNumber > 0 &&
+          discNumber == null;
       final needsTotalDiscs =
           resolvedTotalDiscs != null &&
           resolvedTotalDiscs > 0 &&
@@ -357,13 +392,20 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
           !_isLocalItem &&
           (resolvedBitDepth != null ||
               resolvedSampleRate != null ||
+              needsTrackNumber ||
+              needsTotalTracks ||
+              needsDiscNumber ||
+              needsTotalDiscs ||
+              needsComposer ||
               (isPlaceholderQualityLabel(_quality) && resolvedQuality != null));
 
       if ((resolvedBitDepth != null ||
               resolvedSampleRate != null ||
               needsAlbum ||
               needsDuration ||
+              needsTrackNumber ||
               needsTotalTracks ||
+              needsDiscNumber ||
               needsTotalDiscs ||
               needsComposer ||
               needsLabel ||
@@ -379,7 +421,9 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
             if (resolvedSampleRate != null) 'sample_rate': resolvedSampleRate,
             if (needsAlbum) 'album': resolvedAlbum,
             if (needsDuration) 'duration': resolvedDuration,
+            if (needsTrackNumber) 'track_number': resolvedTrackNumber,
             if (needsTotalTracks) 'total_tracks': resolvedTotalTracks,
+            if (needsDiscNumber) 'disc_number': resolvedDiscNumber,
             if (needsTotalDiscs) 'total_discs': resolvedTotalDiscs,
             if (needsComposer) 'composer': resolvedComposer,
             if (needsLabel) 'label': resolvedLabel,
@@ -396,6 +440,11 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
               quality: resolvedQuality,
               bitDepth: resolvedBitDepth,
               sampleRate: resolvedSampleRate,
+              trackNumber: needsTrackNumber ? resolvedTrackNumber : null,
+              totalTracks: needsTotalTracks ? resolvedTotalTracks : null,
+              discNumber: needsDiscNumber ? resolvedDiscNumber : null,
+              totalDiscs: needsTotalDiscs ? resolvedTotalDiscs : null,
+              composer: needsComposer ? resolvedComposer : null,
             );
       }
     } catch (e) {
@@ -468,6 +517,17 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
   bool get _isLocalItem => widget.localItem != null;
   DownloadHistoryItem? get _downloadItem => widget.item;
   LocalLibraryItem? get _localLibraryItem => widget.localItem;
+  bool get _hasHistoryNavigation =>
+      widget.historyNavigationItems != null && widget.navigationIndex != null;
+  bool get _hasLocalNavigation =>
+      widget.localNavigationItems != null && widget.navigationIndex != null;
+  bool get _hasTrackSwipeNavigation =>
+      _hasHistoryNavigation || _hasLocalNavigation;
+  int? get _navigationIndex => widget.navigationIndex;
+  int get _navigationLength =>
+      widget.historyNavigationItems?.length ??
+      widget.localNavigationItems?.length ??
+      0;
 
   String get _itemId =>
       _isLocalItem ? _localLibraryItem!.id : _downloadItem!.id;
@@ -505,7 +565,9 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
 
   int? get totalTracks =>
       _readPositiveInt(_editedMetadata?['total_tracks']) ??
-      (_isLocalItem ? _localLibraryItem!.totalTracks : null);
+      (_isLocalItem
+          ? _localLibraryItem!.totalTracks
+          : _downloadItem!.totalTracks);
 
   int? get discNumber {
     final edited = _editedMetadata?['disc_number'];
@@ -520,7 +582,9 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
 
   int? get totalDiscs =>
       _readPositiveInt(_editedMetadata?['total_discs']) ??
-      (_isLocalItem ? _localLibraryItem!.totalDiscs : null);
+      (_isLocalItem
+          ? _localLibraryItem!.totalDiscs
+          : _downloadItem!.totalDiscs);
 
   String? get releaseDate =>
       _editedMetadata?['date']?.toString() ??
@@ -777,118 +841,165 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
     Navigator.pop(context, _hasMetadataChanges ? true : null);
   }
 
+  void _handleHorizontalDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity;
+    if (velocity == null || velocity.abs() < 350) return;
+    if (velocity < 0) {
+      unawaited(_navigateToAdjacentTrack(1));
+    } else {
+      unawaited(_navigateToAdjacentTrack(-1));
+    }
+  }
+
+  Future<void> _navigateToAdjacentTrack(int offset) async {
+    if (_isTrackSwipeNavigationInFlight || !_hasTrackSwipeNavigation) return;
+    final currentIndex = _navigationIndex;
+    if (currentIndex == null) return;
+    final targetIndex = currentIndex + offset;
+    if (targetIndex < 0 || targetIndex >= _navigationLength) return;
+
+    _isTrackSwipeNavigationInFlight = true;
+    final result = await Navigator.of(context).push<bool>(
+      adjacentHorizontalPageRoute<bool>(
+        page: _buildSiblingTrackScreen(targetIndex),
+        fromRight: offset > 0,
+      ),
+    );
+    if (!mounted) return;
+    Navigator.pop(context, result == true || _hasMetadataChanges ? true : null);
+  }
+
+  TrackMetadataScreen _buildSiblingTrackScreen(int targetIndex) {
+    if (_hasHistoryNavigation) {
+      return TrackMetadataScreen(
+        item: widget.historyNavigationItems![targetIndex],
+        historyNavigationItems: widget.historyNavigationItems,
+        navigationIndex: targetIndex,
+      );
+    }
+    return TrackMetadataScreen(
+      localItem: widget.localNavigationItems![targetIndex],
+      localNavigationItems: widget.localNavigationItems,
+      navigationIndex: targetIndex,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final expandedHeight = _calculateExpandedHeight(context);
 
-    return Scaffold(
-      body: CustomScrollView(
-        controller: _scrollController,
-        slivers: [
-          SliverAppBar(
-            expandedHeight: expandedHeight,
-            pinned: true,
-            stretch: true,
-            backgroundColor: colorScheme.surface,
-            surfaceTintColor: Colors.transparent,
-            title: AnimatedOpacity(
-              duration: const Duration(milliseconds: 200),
-              opacity: _showTitleInAppBar ? 1.0 : 0.0,
-              child: Text(
-                trackName,
-                style: TextStyle(
-                  color: colorScheme.onSurface,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            flexibleSpace: LayoutBuilder(
-              builder: (context, constraints) {
-                final collapseRatio =
-                    (constraints.maxHeight - kToolbarHeight) /
-                    (expandedHeight - kToolbarHeight);
-                final showContent = collapseRatio > 0.3;
-
-                return FlexibleSpaceBar(
-                  collapseMode: CollapseMode.pin,
-                  background: _buildHeaderBackground(
-                    context,
-                    colorScheme,
-                    expandedHeight,
-                    showContent,
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragEnd: _handleHorizontalDragEnd,
+      child: Scaffold(
+        body: CustomScrollView(
+          controller: _scrollController,
+          slivers: [
+            SliverAppBar(
+              expandedHeight: expandedHeight,
+              pinned: true,
+              stretch: true,
+              backgroundColor: colorScheme.surface,
+              surfaceTintColor: Colors.transparent,
+              title: AnimatedOpacity(
+                duration: const Duration(milliseconds: 200),
+                opacity: _showTitleInAppBar ? 1.0 : 0.0,
+                child: Text(
+                  trackName,
+                  style: TextStyle(
+                    color: colorScheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
                   ),
-                  stretchModes: const [StretchMode.zoomBackground],
-                );
-              },
-            ),
-            leading: IconButton(
-              tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-              icon: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.4),
-                  shape: BoxShape.circle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                child: const Icon(Icons.arrow_back, color: Colors.white),
               ),
-              onPressed: _popWithMetadataResult,
-            ),
-            actions: [
-              IconButton(
-                tooltip: MaterialLocalizations.of(context).showMenuTooltip,
+              flexibleSpace: LayoutBuilder(
+                builder: (context, constraints) {
+                  final collapseRatio =
+                      (constraints.maxHeight - kToolbarHeight) /
+                      (expandedHeight - kToolbarHeight);
+                  final showContent = collapseRatio > 0.3;
+
+                  return FlexibleSpaceBar(
+                    collapseMode: CollapseMode.pin,
+                    background: _buildHeaderBackground(
+                      context,
+                      colorScheme,
+                      expandedHeight,
+                      showContent,
+                    ),
+                    stretchModes: const [StretchMode.zoomBackground],
+                  );
+                },
+              ),
+              leading: IconButton(
+                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
                 icon: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.4),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.more_vert, color: Colors.white),
+                  child: const Icon(Icons.arrow_back, color: Colors.white),
                 ),
-                onPressed: () => _showOptionsMenu(context, ref, colorScheme),
+                onPressed: _popWithMetadataResult,
               ),
-            ],
-          ),
-
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildMetadataCard(context, colorScheme, _fileSize),
-
-                  const SizedBox(height: 16),
-
-                  _buildFileInfoCard(
-                    context,
-                    colorScheme,
-                    _fileExists,
-                    _fileSize,
+              actions: [
+                IconButton(
+                  tooltip: MaterialLocalizations.of(context).showMenuTooltip,
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.more_vert, color: Colors.white),
                   ),
+                  onPressed: () => _showOptionsMenu(context, ref, colorScheme),
+                ),
+              ],
+            ),
 
-                  const SizedBox(height: 16),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildMetadataCard(context, colorScheme, _fileSize),
 
-                  _buildLyricsCard(context, colorScheme),
-
-                  if (_fileExists) ...[
                     const SizedBox(height: 16),
-                    AudioAnalysisCard(filePath: _filePath),
+
+                    _buildFileInfoCard(
+                      context,
+                      colorScheme,
+                      _fileExists,
+                      _fileSize,
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    _buildLyricsCard(context, colorScheme),
+
+                    if (_fileExists) ...[
+                      const SizedBox(height: 16),
+                      AudioAnalysisCard(filePath: _filePath),
+                    ],
+
+                    const SizedBox(height: 24),
+
+                    _buildActionButtons(context, ref, colorScheme, _fileExists),
+
+                    const SizedBox(height: 32),
                   ],
-
-                  const SizedBox(height: 24),
-
-                  _buildActionButtons(context, ref, colorScheme, _fileExists),
-
-                  const SizedBox(height: 32),
-                ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2767,7 +2878,9 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen> {
             albumArtist: normalizedOrNull(albumArtist),
             isrc: normalizedOrNull(isrc),
             trackNumber: trackNumber,
+            totalTracks: totalTracks,
             discNumber: discNumber,
+            totalDiscs: totalDiscs,
             releaseDate: normalizedOrNull(releaseDate),
             genre: normalizedOrNull(genre),
             composer: normalizedOrNull(composer),
